@@ -1,0 +1,58 @@
+# AutoPrint - Printhead maintenance for Canon GX2050 (MegaTank)
+# ====================================================================
+# NOTE Canon GX2050 (MegaTank series):
+#   - Ink in the tanks does not dry out (sealed refill system)
+#   - What clogs are the fine printhead nozzles, especially YELLOW
+#   - Recommended: print at least once per week
+#   - Supports IPP Everywhere -> no vendor driver needed
+#
+# Setup:
+#   1. Create .env from .env.example and set values
+#      (PRINTER_URI, PRINT_WEEKDAY, PRINT_TIME, TZ, optional DNS_SERVER)
+#
+#   2. DNS note for .home.arpa in Docker:
+#      Containers do not always resolve mDNS names automatically.
+#      Option A (recommended): set dns: to your router (uncomment below)
+#      Option B:              set extra_hosts with the printer IP
+#      Option C (Linux):      network_mode: host
+#
+#   3. Start container:   docker compose up -d
+#   4. Check logs:        docker compose logs -f
+#
+# Web UIs after startup:
+#   AutoPrint dashboard -> http://localhost:8080 (schedule, history, manual print)
+#   CUPS manager       -> http://localhost:631  (manual printer setup)
+# ====================================================================
+
+services:
+  autoprint:
+    build: .
+    container_name: autoprint
+    restart: unless-stopped
+    environment:
+      # ---- All values come from .env ----
+      PRINTER_URI: ${PRINTER_URI}
+      PRINTER_NAME: ${PRINTER_NAME:-AutoPrinter}
+      PRINT_WEEKDAY: ${PRINT_WEEKDAY}
+      PRINT_TIME: ${PRINT_TIME}
+      TZ: ${TZ}
+
+    # ---- DNS for .home.arpa resolution ----
+    # Optional: set DNS server from .env if hostname resolution fails in container.
+    # dns:
+    #   - ${DNS_SERVER}
+    #
+    # Alternative: direct hostname-to-IP mapping:
+    # extra_hosts:
+    #   - "my-printer.local:192.168.0.50"
+
+    ports:
+      - "8080:8080"   # AutoPrint Dashboard
+      - "631:631"     # CUPS web UI (optional, LAN-only recommended)
+
+    volumes:
+      - autoprint_data:/data              # state, history, generated files
+
+volumes:
+  autoprint_data:
+    driver: local

@@ -1,0 +1,5 @@
+# Local environment config (contains private network details)
+.env
+
+# Runtime data
+/data/
