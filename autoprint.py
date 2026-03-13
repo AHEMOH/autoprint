@@ -199,8 +199,10 @@ def do_print(manual: bool = False) -> bool:
 
     # Connectivity check via IPP before submitting CUPS job
     if not _check_printer_reachable():
-         msg = (f"Printer not reachable: {PRINTER_URI}\n"
-             "Check DNS/hostname resolution and power/network state.")
+        msg = (
+            f"Printer not reachable: {PRINTER_URI}\n"
+            "Check DNS/hostname resolution and power/network state."
+        )
         log.error(msg)
         _record(success=False, manual=manual, msg=msg)
         return False
