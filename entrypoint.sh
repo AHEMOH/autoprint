@@ -123,5 +123,10 @@ fi
 # ---------------------------------------------------------------------------
 # Start AutoPrint Python service (PID 1)
 # ---------------------------------------------------------------------------
-echo "Starting AutoPrint web service on :8080 ..."
-exec python3 /app/autoprint.py
+echo "Starting AutoPrint web service (Gunicorn) on :8080 ..."
+exec gunicorn \
+    --bind 0.0.0.0:8080 \
+    --workers "${GUNICORN_WORKERS:-1}" \
+    --threads "${GUNICORN_THREADS:-4}" \
+    --timeout "${GUNICORN_TIMEOUT:-60}" \
+    autoprint:app

@@ -1,85 +1,35 @@
 # AutoPrint
 
-AutoPrint prints a colorful maintenance page on a weekly schedule to help reduce printhead nozzle clogging on inkjet printers.
+AutoPrint prints a colorful maintenance page on a weekly schedule to reduce inkjet nozzle clogging.
 
-This project is built for Docker + CUPS and works well with IPP Everywhere printers (including Canon GX series).
+It is designed for Docker + CUPS and works best with IPP Everywhere printers.
 
-## Features
+## What you get
 
 - Weekly scheduled maintenance print
-- Manual print trigger from a small web UI
-- Printer reachability check via IPP (`ipptool`)
-- CUPS integration for network printer queues
-- Containerized setup with Docker Compose
-- Optional automatic image publishing to GHCR and Docker Hub (GitHub Actions)
+- Manual print trigger from web UI
+- IPP reachability check before each print
+- CUPS queue handling inside the container
+- Ready-to-use images on Docker Hub and GHCR
 
-## Quick Start
+## Quick start (recommended: published image)
 
-1. Copy `.env.example` to `.env`
-2. Set your printer values in `.env`
-3. Start:
-
-```bash
-docker compose up -d
-```
-
-4. Open:
-- Dashboard: `http://localhost:8080`
-- CUPS UI: `http://localhost:631`
-
-## Configuration
-
-Environment variables (set in `.env`):
-
-| Variable | Required | Example | Description |
-|---|---|---|---|
-| `PRINTER_URI` | yes | `ipp://my-printer.local/ipp/print` | IPP URI of your printer |
-| `PRINT_WEEKDAY` | yes | `monday` | Print day (`monday`..`sunday`) |
-| `PRINT_TIME` | yes | `10:00` | Print time in 24h format |
-| `TZ` | yes | `Europe/Berlin` | Timezone |
-| `PRINTER_NAME` | no | `AutoPrinter` | CUPS queue/display name |
-| `DNS_SERVER` | no | `192.168.0.1` | Optional DNS server for container hostname resolution |
-
-## Using the Published Image
-
-No build required. Pull directly from the registry and run.
-
-### docker run
-
-```bash
-docker run -d \
-  --name autoprint \
-  --restart unless-stopped \
-  -p 8080:8080 \
-  -p 631:631 \
-  --env-file .env \
-  ahemoh/autoprint:latest
-```
-
-Or from GHCR:
-
-```bash
-docker run -d \
-  --name autoprint \
-  --restart unless-stopped \
-  -p 8080:8080 \
-  -p 631:631 \
-  --env-file .env \
-  ghcr.io/ahemoh/autoprint:latest
-```
-
-### docker compose (no local build)
-
-Replace `build: .` with the `image:` line in `docker-compose.yml`:
+Use this `docker-compose.yml` template and replace placeholders.
 
 ```yaml
 services:
   autoprint:
-    image: ahemoh/autoprint:latest   # pull from Docker Hub
-    # image: ghcr.io/ahemoh/autoprint:latest  # or from GHCR
+    image: <registry-user>/autoprint:latest
+    # Example Docker Hub: ahemoh/autoprint:latest
+    # Example GHCR: ghcr.io/<github-user>/autoprint:latest
     container_name: autoprint
     restart: unless-stopped
-    env_file: .env
+    environment:
+      PRINTER_URI: 'ipp://<printer-host-or-ip>/ipp/print'
+      PRINT_WEEKDAY: 'monday'
+      PRINT_TIME: '08:00'
+      TZ: 'Europe/Berlin'
+      PRINTER_NAME: 'MyPrinter'
     ports:
       - "8080:8080"
       - "631:631"
@@ -90,53 +40,53 @@ volumes:
   autoprint_data:
 ```
 
-Then start with:
+Start:
 
 ```bash
 docker compose up -d
 ```
 
-## Build and Run Locally
+Open:
+
+- Dashboard: `http://localhost:8080`
+- CUPS UI: `http://localhost:631`
+
+## Environment variables
+
+| Variable | Required | Example | Description |
+|---|---|---|---|
+| `PRINTER_URI` | yes | `ipp://printer.local/ipp/print` | Printer IPP endpoint |
+| `PRINT_WEEKDAY` | yes | `monday` | `monday` to `sunday` |
+| `PRINT_TIME` | yes | `08:00` | 24h format |
+| `TZ` | yes | `Europe/Berlin` | Container timezone |
+| `PRINTER_NAME` | no | `MyPrinter` | CUPS queue name |
+| `GUNICORN_WORKERS` | no | `1` | Gunicorn worker processes |
+| `GUNICORN_THREADS` | no | `4` | Threads per worker |
+| `GUNICORN_TIMEOUT` | no | `60` | Request timeout (seconds) |
+
+## docker run (alternative)
 
 ```bash
-docker build -t autoprint:local .
-docker run --rm -p 8080:8080 -p 631:631 --env-file .env autoprint:local
+docker run -d \
+  --name autoprint \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -p 631:631 \
+  -e PRINTER_URI='ipp://<printer-host-or-ip>/ipp/print' \
+  -e PRINT_WEEKDAY='monday' \
+  -e PRINT_TIME='08:00' \
+  -e TZ='Europe/Berlin' \
+  -e PRINTER_NAME='MyPrinter' \
+  -v autoprint_data:/data \
+  <registry-user>/autoprint:latest
 ```
 
-## Publish Images Manually
+## Notes
 
-### Docker Hub
-
-```bash
-docker build -t autoprint:local .
-docker tag autoprint:local <dockerhub-user>/autoprint:latest
-docker login
-docker push <dockerhub-user>/autoprint:latest
-```
-
-### GHCR
-
-```bash
-docker build -t autoprint:local .
-docker tag autoprint:local ghcr.io/<github-user>/autoprint:latest
-docker login ghcr.io -u <github-user>
-docker push ghcr.io/<github-user>/autoprint:latest
-```
-
-## Automatic Publish (GitHub Actions)
-
-Workflow file: `.github/workflows/docker-publish.yml`
-
-- Publishes to GHCR on push to `main`, tags (`v*.*.*`), or manual run.
-- Publishes to Docker Hub only if both secrets are set:
-  - `DOCKERHUB_USERNAME`
-  - `DOCKERHUB_TOKEN`
-
-## Security Note
-
-Do not commit `.env`.
-It may contain private network details (hostnames, printer URI, local DNS).
+- The container uses Gunicorn (WSGI) for production web serving.
+- If `.local` or `.home.arpa` names do not resolve inside Docker, use the printer IP in `PRINTER_URI`.
+- Do not publish private network values in public repos.
 
 ## License
 
-Licensed under Apache License 2.0. See `LICENSE`.
+Apache License 2.0. See `LICENSE`.

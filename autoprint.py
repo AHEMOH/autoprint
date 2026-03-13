@@ -303,6 +303,8 @@ def run_scheduler() -> None:
 # Flask web UI
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
+_scheduler_started = False
+_scheduler_lock = threading.Lock()
 
 _HTML = """<!DOCTYPE html>
 <html lang="en">
@@ -485,10 +487,22 @@ def status():
     return jsonify(state)
 
 
+def start_background_services() -> None:
+    """Start scheduler exactly once (needed for gunicorn import mode)."""
+    global _scheduler_started
+    with _scheduler_lock:
+        if _scheduler_started:
+            return
+        threading.Thread(target=run_scheduler, daemon=True).start()
+        _scheduler_started = True
+        log.info(f"AutoPrint ready | Printer: {PRINTER_NAME} | Schedule: {PRINT_WEEKDAY} @ {PRINT_TIME}")
+
+
+start_background_services()
+
+
 # ---------------------------------------------------------------------------
 # Start
 # ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    threading.Thread(target=run_scheduler, daemon=True).start()
-    log.info(f"AutoPrint ready | Printer: {PRINTER_NAME} | Schedule: {PRINT_WEEKDAY} @ {PRINT_TIME}")
     app.run(host="0.0.0.0", port=8080)
