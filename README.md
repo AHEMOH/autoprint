@@ -40,6 +40,62 @@ Environment variables (set in `.env`):
 | `PRINTER_NAME` | no | `AutoPrinter` | CUPS queue/display name |
 | `DNS_SERVER` | no | `192.168.0.1` | Optional DNS server for container hostname resolution |
 
+## Using the Published Image
+
+No build required. Pull directly from the registry and run.
+
+### docker run
+
+```bash
+docker run -d \
+  --name autoprint \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -p 631:631 \
+  --env-file .env \
+  ahemoh/autoprint:latest
+```
+
+Or from GHCR:
+
+```bash
+docker run -d \
+  --name autoprint \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -p 631:631 \
+  --env-file .env \
+  ghcr.io/ahemoh/autoprint:latest
+```
+
+### docker compose (no local build)
+
+Replace `build: .` with the `image:` line in `docker-compose.yml`:
+
+```yaml
+services:
+  autoprint:
+    image: ahemoh/autoprint:latest   # pull from Docker Hub
+    # image: ghcr.io/ahemoh/autoprint:latest  # or from GHCR
+    container_name: autoprint
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8080:8080"
+      - "631:631"
+    volumes:
+      - autoprint_data:/data
+
+volumes:
+  autoprint_data:
+```
+
+Then start with:
+
+```bash
+docker compose up -d
+```
+
 ## Build and Run Locally
 
 ```bash
