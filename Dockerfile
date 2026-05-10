@@ -18,13 +18,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --no-cache-dir \
         "pillow>=10.0" \
         "schedule>=1.2" \
-    "flask>=3.0" \
-    "gunicorn>=22.0"
+        "flask>=3.0" \
+        "gunicorn>=22.0" \
+        "pypdf>=4.0"
 
 COPY entrypoint.sh /entrypoint.sh
 COPY autoprint.py  /app/autoprint.py
+COPY templates/    /app/templates/
 
-RUN chmod +x /entrypoint.sh && mkdir -p /data
+RUN chmod +x /entrypoint.sh && mkdir -p /data/images
 
 WORKDIR /app
 

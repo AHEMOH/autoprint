@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AutoPrint</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',Arial,sans-serif;background:#f4f4f4;color:#333}
+.wrap{max-width:620px;margin:40px auto;padding:0 16px}
+h1{font-size:26px;margin-bottom:20px}
+.rainbow{height:7px;border-radius:4px;margin-bottom:22px;
+  background:linear-gradient(to right,red,orange,gold,green,cyan,blue,violet,deeppink)}
+.card{background:#fff;border-radius:12px;padding:20px;margin-bottom:16px;
+  box-shadow:0 2px 10px rgba(0,0,0,.07)}
+.card h2{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:14px}
+.row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #f0f0f0}
+.row:last-child{border-bottom:none}
+.btn{display:inline-block;padding:11px 26px;border:0;border-radius:8px;font-size:14px;
+  text-decoration:none;cursor:pointer;margin-top:6px;margin-right:8px;font-family:inherit}
+.btn-mini{display:inline-block;padding:5px 12px;border:0;border-radius:6px;font-size:12px;
+  text-decoration:none;cursor:pointer;margin-left:4px;font-family:inherit}
+.btn-blue{background:#1a73e8;color:#fff}.btn-blue:hover{background:#1558b0}
+.btn-gray{background:#6c757d;color:#fff}.btn-gray:hover{background:#545b62}
+.alert{margin-top:14px;padding:11px 14px;border-radius:7px;font-size:14px}
+.ok{background:#d4edda;color:#155724}.err{background:#f8d7da;color:#721c24}
+.hist{font-size:13px;padding:7px 0;border-bottom:1px solid #f5f5f5}
+.hist:last-child{border-bottom:none}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.g{background:#28a745}.r{background:#dc3545}
+.muted{color:#999;font-size:12px}
+.fname{word-break:break-all;font-size:13px}
+.upload-form{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.upload-form input[type=file]{flex:1;min-width:200px;font-size:13px}
+.hint{color:#888;font-size:12px;margin-top:10px;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="rainbow"></div>
+    <h1>AutoPrint</h1>
+
+  <div class="card">
+        <h2>Status</h2>
+        <div class="row"><span>Printer</span>
+      <strong>{{ printer_name }}
+        {% if printer_ok %}
+                    <span style="color:#28a745;font-size:11px"> &#x2714; reachable</span>
+        {% else %}
+                    <span style="color:#dc3545;font-size:11px"> &#x26a0; unreachable</span>
+        {% endif %}
+      </strong>
+    </div>
+    <div class="row"><span>URI</span><code style="font-size:12px">{{ printer_uri }}</code></div>
+        <div class="row"><span>Schedule</span><strong>{{ weekday }}, {{ print_time }}</strong></div>
+        <div class="row"><span>Last Print</span><strong>{{ last_print }}</strong></div>
+        <div class="row"><span>Total Prints</span><strong>{{ print_count }}&times;</strong></div>
+        <div class="row"><span>Maintenance Strip</span><strong>{{ 'on' if maintenance_strip else 'off' }}</strong></div>
+    {% if not printer_ok %}
+    <div class="alert err" style="margin-top:10px;font-size:13px">
+            &#x26a0; Printer unreachable. PRINTER_URI may be missing/incorrect,
+            or hostname resolution may fail inside the container.<br>
+            Fix: set <code>dns:</code> in <code>docker-compose.yml</code>,
+            or use <code>extra_hosts</code> with the printer IP.
+    </div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+        <h2>Actions</h2>
+        <a href="/print_now" class="btn btn-blue">Print Now</a>
+        <a href="/preview"   class="btn btn-gray">Preview (PNG)</a>
+    {% if msg %}
+    <div class="alert {{ msg_class }}">{{ msg }}</div>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Images</h2>
+    {% if images %}
+      {% for img in images %}
+        <div class="row">
+          <span class="fname">{{ img.name }}<br><span class="muted">Last printed: {{ img.last_printed }}</span></span>
+          <span>
+            <form method="post" action="/images/{{ img.name }}/print" style="display:inline">
+              <button class="btn-mini btn-blue" type="submit">Print</button>
+            </form>
+            <form method="post" action="/images/{{ img.name }}/delete" style="display:inline"
+                  onsubmit="return confirm('Delete {{ img.name }}?')">
+              <button class="btn-mini btn-gray" type="submit">Delete</button>
+            </form>
+          </span>
+        </div>
+      {% endfor %}
+    {% else %}
+      <p class="muted">No images yet. Without uploads AutoPrint falls back to the synthetic color test page.</p>
+    {% endif %}
+
+    <form class="upload-form" method="post" action="/upload" enctype="multipart/form-data">
+      <input type="file" name="file" accept=".png,.jpg,.jpeg,.pdf" required>
+      <button class="btn btn-blue" type="submit">Upload</button>
+    </form>
+    <div class="hint">
+      Accepted: PNG, JPG, PDF. Max 10&nbsp;MB.
+      Scheduled prints round-robin through your images (oldest-printed first).
+      A small color strip is always appended to keep every ink nozzle in use.
+    </div>
+  </div>
+
+  {% if history %}
+  <div class="card">
+    <h2>History</h2>
+    {% for e in history %}
+    <div class="hist">
+      <span class="dot {{ 'g' if e.success else 'r' }}"></span>
+      {{ e.time }}
+    {% if e.manual %}<span style="color:#aaa">(manual)</span>{% endif %}
+      {% if e.image %}<span style="color:#888"> &middot; {{ e.image }}</span>{% endif %}
+      {% if not e.success %}<span style="color:#c00"> &ndash; {{ e.msg }}</span>{% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+</body>
+</html>

@@ -3,3 +3,11 @@
 
 # Runtime data
 /data/
+
+# Claude Code: agent guidance and local settings (machine-specific)
+CLAUDE.md
+.claude/
+
+# Python bytecode
+__pycache__/
+*.py[cod]

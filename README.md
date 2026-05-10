@@ -8,6 +8,9 @@ It is designed for Docker + CUPS and works best with IPP Everywhere printers.
 
 - Weekly scheduled maintenance print
 - Manual print trigger from web UI
+- Bring-your-own images (PDF/PNG/JPG) — kid coloring pages, scanned drawings, anything you have a right to print
+- Round-robin through your images so nothing repeats unnecessarily
+- A slim color strip is always appended to keep every ink nozzle in use, regardless of the image
 - IPP reachability check before each print
 - CUPS queue handling inside the container
 - Ready-to-use images on Docker Hub and GHCR
@@ -60,6 +63,7 @@ Open:
 | `PRINT_TIME` | yes | `08:00` | 24h format |
 | `TZ` | yes | `Europe/Berlin` | Container timezone |
 | `PRINTER_NAME` | no | `MyPrinter` | CUPS queue name |
+| `MAINTENANCE_STRIP` | no | `on` | Append color strip to user images (`on`/`off`) |
 | `GUNICORN_WORKERS` | no | `1` | Gunicorn worker processes |
 | `GUNICORN_THREADS` | no | `4` | Threads per worker |
 | `GUNICORN_TIMEOUT` | no | `60` | Request timeout (seconds) |
@@ -80,6 +84,28 @@ docker run -d \
   -v autoprint_data:/data \
   <registry-user>/autoprint:latest
 ```
+
+## Bring your own images
+
+Drop `.pdf`, `.png`, `.jpg`, or `.jpeg` files into the dashboard's **Images** card
+(or directly into the `autoprint_data` volume under `/data/images/`).
+AutoPrint then prints them on the weekly schedule, round-robin (oldest-printed first),
+instead of the synthetic color test page. An empty folder always falls back to the test page.
+
+A slim color **maintenance strip** is automatically composited onto the bottom of
+every printed user image (or appended as an extra page for PDFs). This keeps every
+ink nozzle — especially yellow — in regular use even when the image itself is
+mostly one color. Disable with `MAINTENANCE_STRIP=off` if you really do not want it.
+
+Where to get printable images legally:
+
+- Official free coloring pages from the IP owner — e.g. Spin Master / Nickelodeon
+  for *Paw Patrol*, Disney's "Family" site for *Frozen*, etc.
+- Public-domain coloring sources like [openclipart.org](https://openclipart.org)
+- Scans of your kid's own drawings
+
+Do not redistribute copyrighted material — printing for personal/family use is
+typically fine; bundling those files into a public Docker image is not.
 
 ## Notes
 
