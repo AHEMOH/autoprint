@@ -35,6 +35,10 @@ from werkzeug.utils import secure_filename
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
+# Bump this on every release - it shows up in the startup log, in /status,
+# and in the dashboard header so you can verify which build is running.
+VERSION = "1.1.0"
+
 # ---------------------------------------------------------------------------
 # Configuration from environment variables
 # ---------------------------------------------------------------------------
@@ -482,6 +486,7 @@ def _render(msg=None, msg_class=None):
     reachable = _check_printer_reachable()
     return render_template(
         "dashboard.html",
+        version           = VERSION,
         printer_name      = PRINTER_NAME,
         printer_uri       = PRINTER_URI,
         printer_ok        = reachable,
@@ -578,6 +583,7 @@ def delete_image(name):
 @app.route("/status")
 def status():
     state = load_state()
+    state["version"]           = VERSION
     state["printer_reachable"] = _check_printer_reachable()
     state["printer_uri"]       = PRINTER_URI
     state["printer_name"]      = PRINTER_NAME
@@ -594,10 +600,12 @@ def start_background_services() -> None:
             return
         threading.Thread(target=run_scheduler, daemon=True).start()
         _scheduler_started = True
+        log.info(f"=== AutoPrint v{VERSION} starting ===")
         log.info(
-            f"AutoPrint ready | Printer: {PRINTER_NAME} "
+            f"AutoPrint ready | Version: {VERSION} | Printer: {PRINTER_NAME} "
             f"| Schedule: {PRINT_WEEKDAY} @ {PRINT_TIME} "
-            f"| MaintenanceStrip: {'on' if MAINTENANCE_STRIP_ENABLED else 'off'}"
+            f"| MaintenanceStrip: {'on' if MAINTENANCE_STRIP_ENABLED else 'off'} "
+            f"| ImagesDir: {IMAGE_DIR}"
         )
 
 
