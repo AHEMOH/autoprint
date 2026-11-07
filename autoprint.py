@@ -122,6 +122,46 @@ MEDIA_LABELS = {
     "labels":                     "Etiketten",
     "transparency":               "Folie",
 }
+# Canon vendor media keywords (com.canon-*) as reported by GX/MegaTank printers.
+# Photo papers make the printer lay down more ink; Hagaki are Japanese postcards.
+CANON_MEDIA_LABELS = {
+    "mtglossy":           ("photo", "Canon Fotopapier glänzend (mehr Tinte)"),
+    "mtsemisuper":        ("photo", "Canon Fotopapier Plus seidenglanz (mehr Tinte)"),
+    "mtluster":           ("photo", "Canon Fotopapier Pro Luster (mehr Tinte)"),
+    "mtmat":              ("photo", "Canon Fotopapier matt (mehr Tinte)"),
+    "mthires":            ("plain", "Canon High-Resolution-Papier"),
+    "mtgreeting":         ("other", "Canon Grußkarte"),
+    "mtinkjet":           ("other", "Inkjet-Postkarte (Hagaki, Japan)"),
+    "mtinkjeta":          ("other", "Inkjet-Postkarte A (Hagaki, Japan)"),
+    "mthagaki":           ("other", "Postkarte (Hagaki, Japan)"),
+    "mthagakia":          ("other", "Postkarte A (Hagaki, Japan)"),
+    "mthagakiglossy":     ("other", "Postkarte glänzend (Hagaki, Japan)"),
+    "mthagakiglossya":    ("other", "Postkarte glänzend A (Hagaki, Japan)"),
+}
+
+
+def media_label(keyword: str) -> str:
+    if keyword in MEDIA_LABELS:
+        return MEDIA_LABELS[keyword]
+    if keyword.startswith("com.canon-"):
+        code = keyword[len("com.canon-"):]
+        if code in CANON_MEDIA_LABELS:
+            return CANON_MEDIA_LABELS[code][1]
+        return f"Canon-Sondermedium ({code})"
+    return keyword
+
+
+def _media_group(keyword: str) -> str:
+    if keyword.startswith("stationery") or keyword == "auto":
+        return "plain"
+    if keyword.startswith("photographic"):
+        return "photo"
+    if keyword.startswith("com.canon-"):
+        entry = CANON_MEDIA_LABELS.get(keyword[len("com.canon-"):])
+        return entry[0] if entry else "unknown"
+    return "other"
+
+
 FALLBACK_MEDIA_TYPES = ["stationery", "photographic-glossy", "photographic"]
 
 WEEKDAY_DE = {
@@ -743,14 +783,14 @@ def media_type_options(settings: dict, caps: dict) -> list:
     The currently selected value is always present."""
     types = list(dict.fromkeys(caps.get("media_types", []) + [settings["media_type"]]))
 
-    def rank(t: str):
-        if t.startswith("stationery") or t == "auto":
-            return (0, t != "stationery", t)
-        if t.startswith("photographic"):
-            return (1, t != "photographic-glossy", t)
-        return (2, False, t)
+    order = {"plain": 0, "photo": 1, "other": 2, "unknown": 3}
+    first = ("stationery", "photographic", "photographic-glossy")
 
-    return [{"value": t, "label": MEDIA_LABELS.get(t, t)} for t in sorted(types, key=rank)]
+    def rank(t: str):
+        prio = first.index(t) if t in first else len(first)
+        return (order[_media_group(t)], prio, t.startswith("com.canon-"), media_label(t))
+
+    return [{"value": t, "label": media_label(t)} for t in sorted(types, key=rank)]
 
 
 def _lp_options(settings: dict, caps: dict) -> list:
@@ -768,7 +808,7 @@ def _lp_options(settings: dict, caps: dict) -> list:
 def _opts_summary(settings: dict) -> dict:
     return {
         "quality":    QUALITY_LABELS.get(settings["quality"], str(settings["quality"])),
-        "media_type": MEDIA_LABELS.get(settings["media_type"], settings["media_type"]).replace(" (mehr Tinte)", ""),
+        "media_type": media_label(settings["media_type"]).replace(" (mehr Tinte)", ""),
         "strip":      ("oben" if settings["strip_position"] == "top" else "unten") if settings["strip_enabled"] else "aus",
     }
 
