@@ -1,126 +1,309 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>AutoPrint</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Segoe UI',Arial,sans-serif;background:#f4f4f4;color:#333}
-.wrap{max-width:620px;margin:40px auto;padding:0 16px}
-h1{font-size:26px;margin-bottom:20px}
-.rainbow{height:7px;border-radius:4px;margin-bottom:22px;
-  background:linear-gradient(to right,red,orange,gold,green,cyan,blue,violet,deeppink)}
-.card{background:#fff;border-radius:12px;padding:20px;margin-bottom:16px;
-  box-shadow:0 2px 10px rgba(0,0,0,.07)}
-.card h2{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:#999;margin-bottom:14px}
-.row{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid #f0f0f0}
-.row:last-child{border-bottom:none}
-.btn{display:inline-block;padding:11px 26px;border:0;border-radius:8px;font-size:14px;
-  text-decoration:none;cursor:pointer;margin-top:6px;margin-right:8px;font-family:inherit}
-.btn-mini{display:inline-block;padding:5px 12px;border:0;border-radius:6px;font-size:12px;
-  text-decoration:none;cursor:pointer;margin-left:4px;font-family:inherit}
-.btn-blue{background:#1a73e8;color:#fff}.btn-blue:hover{background:#1558b0}
-.btn-gray{background:#6c757d;color:#fff}.btn-gray:hover{background:#545b62}
-.alert{margin-top:14px;padding:11px 14px;border-radius:7px;font-size:14px}
-.ok{background:#d4edda;color:#155724}.err{background:#f8d7da;color:#721c24}
-.hist{font-size:13px;padding:7px 0;border-bottom:1px solid #f5f5f5}
-.hist:last-child{border-bottom:none}
-.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
-.g{background:#28a745}.r{background:#dc3545}
-.muted{color:#999;font-size:12px}
-.fname{word-break:break-all;font-size:13px}
-.upload-form{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.upload-form input[type=file]{flex:1;min-width:200px;font-size:13px}
-.hint{color:#888;font-size:12px;margin-top:10px;line-height:1.5}
-</style>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='3' y='3' width='26' height='26' rx='7' fill='%232563eb'/%3E%3Cpath d='M10 12h12v8H10z' fill='%23fff'/%3E%3Cpath d='M12 9h8v3h-8zM12 20h8v4h-8z' fill='%23fde047'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}?v={{ version }}">
 </head>
 <body>
+<div class="rainbow" aria-hidden="true"></div>
+
 <div class="wrap">
-  <div class="rainbow"></div>
-    <h1>AutoPrint <span style="font-size:13px;color:#999;font-weight:normal">v{{ version }}</span></h1>
 
-  <div class="card">
-        <h2>Status</h2>
-        <div class="row"><span>Printer</span>
-      <strong>{{ printer_name }}
-        {% if printer_ok %}
-                    <span style="color:#28a745;font-size:11px"> &#x2714; reachable</span>
-        {% else %}
-                    <span style="color:#dc3545;font-size:11px"> &#x26a0; unreachable</span>
-        {% endif %}
-      </strong>
+  <!-- ───────────── Kopf ───────────── -->
+  <header class="top">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M6 9V3h12v6"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v7H6z"/>
+        </svg>
+      </span>
+      <div>
+        <h1>AutoPrint <span class="ver">v{{ version }}</span></h1>
+        <p class="sub">Wöchentliche Düsenpflege für {{ printer_name }}</p>
+      </div>
     </div>
-    <div class="row"><span>URI</span><code style="font-size:12px">{{ printer_uri }}</code></div>
-        <div class="row"><span>Schedule</span><strong>{{ weekday }}, {{ print_time }}</strong></div>
-        <div class="row"><span>Last Print</span><strong>{{ last_print }}</strong></div>
-        <div class="row"><span>Total Prints</span><strong>{{ print_count }}&times;</strong></div>
-        <div class="row"><span>Maintenance Strip</span><strong>{{ 'on' if maintenance_strip else 'off' }}</strong></div>
-    {% if not printer_ok %}
-    <div class="alert err" style="margin-top:10px;font-size:13px">
-            &#x26a0; Printer unreachable. PRINTER_URI may be missing/incorrect,
-            or hostname resolution may fail inside the container.<br>
-            Fix: set <code>dns:</code> in <code>docker-compose.yml</code>,
-            or use <code>extra_hosts</code> with the printer IP.
+    <div class="chips">
+      <span class="chip {{ 'chip-ok' if printer_ok else 'chip-err' }}" id="chip-printer">
+        <span class="dot"></span>
+        <span class="chip-text">{{ 'Drucker erreichbar' if printer_ok else 'Drucker nicht erreichbar' }}</span>
+      </span>
+      <span class="chip chip-info" id="chip-next">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <span class="chip-text">Nächster Druck: {{ next_run.label }}{% if next_run.relative %} · {{ next_run.relative }}{% endif %}</span>
+      </span>
     </div>
-    {% endif %}
-  </div>
+  </header>
 
-  <div class="card">
-        <h2>Actions</h2>
-        <a href="/print_now" class="btn btn-blue">Print Now</a>
-        <a href="/preview"   class="btn btn-gray">Preview (PNG)</a>
-    {% if msg %}
-    <div class="alert {{ msg_class }}">{{ msg }}</div>
-    {% endif %}
-  </div>
-
-  <div class="card">
-    <h2>Images</h2>
-    {% if images %}
-      {% for img in images %}
-        <div class="row">
-          <span class="fname">{{ img.name }}<br><span class="muted">Last printed: {{ img.last_printed }}</span></span>
-          <span>
-            <form method="post" action="/images/{{ img.name }}/print" style="display:inline">
-              <button class="btn-mini btn-blue" type="submit">Print</button>
-            </form>
-            <form method="post" action="/images/{{ img.name }}/delete" style="display:inline"
-                  onsubmit="return confirm('Delete {{ img.name }}?')">
-              <button class="btn-mini btn-gray" type="submit">Delete</button>
-            </form>
-          </span>
-        </div>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="flashes" role="status">
+      {% for cat, m in messages %}
+      <div class="flash flash-{{ cat }}">
+        <span>{{ m }}</span>
+        <button class="flash-x" type="button" aria-label="Schließen" onclick="this.parentElement.remove()">&times;</button>
+      </div>
       {% endfor %}
-    {% else %}
-      <p class="muted">No images yet. Without uploads AutoPrint falls back to the synthetic color test page.</p>
+    </div>
     {% endif %}
+  {% endwith %}
 
-    <form class="upload-form" method="post" action="/upload" enctype="multipart/form-data">
-      <input type="file" name="file" accept=".png,.jpg,.jpeg,.pdf" required>
-      <button class="btn btn-blue" type="submit">Upload</button>
-    </form>
-    <div class="hint">
-      Accepted: PNG, JPG, PDF. Max 10&nbsp;MB.
-      Scheduled prints round-robin through your images (oldest-printed first).
-      A small color strip is always appended to keep every ink nozzle in use.
-    </div>
-  </div>
-
-  {% if history %}
-  <div class="card">
-    <h2>History</h2>
-    {% for e in history %}
-    <div class="hist">
-      <span class="dot {{ 'g' if e.success else 'r' }}"></span>
-      {{ e.time }}
-    {% if e.manual %}<span style="color:#aaa">(manual)</span>{% endif %}
-      {% if e.image %}<span style="color:#888"> &middot; {{ e.image }}</span>{% endif %}
-      {% if not e.success %}<span style="color:#c00"> &ndash; {{ e.msg }}</span>{% endif %}
-    </div>
-    {% endfor %}
+  {% if not printer_ok %}
+  <div class="card card-warn">
+    <strong>Drucker nicht erreichbar.</strong>
+    <code>{{ printer_uri or 'PRINTER_URI nicht gesetzt' }}</code> antwortet nicht auf IPP.
+    Häufige Ursachen: Drucker schläft oder ist aus, falsche URI, oder der Hostname (<code>.local</code> / <code>.home.arpa</code>)
+    wird im Container nicht aufgelöst. Abhilfe: IP-Adresse in <code>PRINTER_URI</code> eintragen oder
+    <code>dns:</code> / <code>extra_hosts:</code> in <code>docker-compose.yml</code> setzen.
+    Das Dashboard funktioniert trotzdem; Drucke schlagen fehl, bis der Drucker erreichbar ist.
   </div>
   {% endif %}
+
+  <!-- ───────────── Kennzahlen ───────────── -->
+  <section class="kpis">
+    <div class="kpi">
+      <span class="kpi-label">Letzter Druck</span>
+      <span class="kpi-value">{{ last_print }}</span>
+    </div>
+    <div class="kpi">
+      <span class="kpi-label">Nächster Druck</span>
+      <span class="kpi-value" id="kpi-next">{{ next_run.label }}</span>
+      <span class="kpi-hint" id="kpi-next-rel">{{ next_run.relative or ('jeden ' ~ weekday ~ ' um ' ~ print_time) }}</span>
+    </div>
+    <div class="kpi">
+      <span class="kpi-label">Drucke gesamt</span>
+      <span class="kpi-value">{{ print_count }}</span>
+    </div>
+    <div class="kpi">
+      <span class="kpi-label">Bilder im Pool</span>
+      <span class="kpi-value">{{ images|length }}</span>
+      <span class="kpi-hint">{{ 'Zufallsauswahl' if settings.image_order == 'random' else 'Round-Robin' }}</span>
+    </div>
+  </section>
+
+  <div class="grid-2">
+
+    <!-- ───────────── Aktionen ───────────── -->
+    <section class="card">
+      <h2>Aktionen</h2>
+      <div class="next-print">
+        <div class="next-thumb">
+          {% if next_image %}
+            <img src="{{ url_for('image_thumb', name=next_image) }}" alt="" loading="lazy">
+          {% else %}
+            <div class="next-synth" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+          {% endif %}
+        </div>
+        <div class="next-info">
+          <span class="muted">Als Nächstes:</span>
+          <strong class="fname">{{ next_image or 'Synthetische Farbtestseite' }}</strong>
+          <span class="muted small">
+            Qualität {{ opts_summary.quality }} · {{ opts_summary.media_type }} ·
+            Farbstreifen {{ opts_summary.strip }}
+          </span>
+        </div>
+      </div>
+      <div class="actions">
+        <form method="post" action="{{ url_for('print_now') }}" data-confirm="Jetzt eine Seite drucken?">
+          <button class="btn btn-primary" type="submit">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v7H6z"/></svg>
+            Jetzt drucken
+          </button>
+        </form>
+        <button class="btn btn-ghost" type="button" data-preview="{{ url_for('preview') }}">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>
+          Vorschau
+        </button>
+      </div>
+      <p class="hint">
+        Zeitplan: jeden <strong>{{ weekday }}</strong> um <strong>{{ print_time }}</strong> Uhr
+        (<code>PRINT_WEEKDAY</code> / <code>PRINT_TIME</code>).
+      </p>
+    </section>
+
+    <!-- ───────────── Druckeinstellungen ───────────── -->
+    <section class="card">
+      <h2>Druckeinstellungen</h2>
+      <form method="post" action="{{ url_for('update_settings') }}" class="settings">
+        <label class="field">
+          <span class="field-label">Qualität</span>
+          <select name="quality">
+            <option value="4" {{ 'selected' if settings.quality == 4 }}>Normal</option>
+            <option value="5" {{ 'selected' if settings.quality == 5 }}>Hoch (empfohlen)</option>
+          </select>
+          <span class="field-hint">„Hoch“ fährt mehr Durchgänge und bringt mehr Tinte aufs Papier.</span>
+        </label>
+
+        <label class="field">
+          <span class="field-label">Papier / Druckmodus</span>
+          <select name="media_type">
+            {% for o in media_options %}
+            <option value="{{ o.value }}" {{ 'selected' if o.value == settings.media_type }}>{{ o.label }}</option>
+            {% endfor %}
+          </select>
+          <span class="field-hint">
+            Fotopapier-Modus = Fotoqualität: der Drucker legt deutlich mehr Tinte ab, auch auf Normalpapier.
+            Gut zum Durchspülen, das Blatt wird aber feuchter.
+            <em class="muted">({{ {'printer': 'Liste vom Drucker', 'cache': 'Liste aus Cache', 'fallback': 'Standardliste, Drucker nicht abfragbar'}[caps_source] }})</em>
+          </span>
+        </label>
+
+        <div class="field-row">
+          <label class="field">
+            <span class="field-label">Farbstreifen</span>
+            <select name="strip_enabled">
+              <option value="on"  {{ 'selected' if settings.strip_enabled }}>An (empfohlen)</option>
+              <option value="off" {{ 'selected' if not settings.strip_enabled }}>Aus</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-label">Position</span>
+            <select name="strip_position">
+              <option value="top"    {{ 'selected' if settings.strip_position == 'top' }}>Oben (empfohlen)</option>
+              <option value="bottom" {{ 'selected' if settings.strip_position == 'bottom' }}>Unten</option>
+            </select>
+          </label>
+        </div>
+        <span class="field-hint">
+          Oben: der CMYK-Streifen wird zuerst gedruckt und spült die Düsen, bevor das eigentliche Bild kommt.
+          Bei PDFs wird eine eigene Streifenseite vorangestellt.
+        </span>
+
+        <label class="field">
+          <span class="field-label">Bildauswahl</span>
+          <select name="image_order">
+            <option value="roundrobin" {{ 'selected' if settings.image_order == 'roundrobin' }}>Round-Robin (am längsten nicht gedruckt zuerst)</option>
+            <option value="random"     {{ 'selected' if settings.image_order == 'random' }}>Zufällig (nie zweimal dasselbe hintereinander)</option>
+          </select>
+        </label>
+
+        <div class="actions">
+          <button class="btn btn-primary" type="submit">Speichern</button>
+          <span class="muted small">Gilt sofort, kein Neustart nötig.</span>
+        </div>
+      </form>
+    </section>
+  </div>
+
+  <!-- ───────────── Bilderpool ───────────── -->
+  <section class="card">
+    <h2>Bilderpool <span class="count">{{ images|length }}</span></h2>
+
+    <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data" id="upload-form">
+      <label class="dropzone" id="dropzone" for="file-input">
+        <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m6 10 6-6 6 6"/><path d="M4 20h16"/></svg>
+        <strong>Bilder hierher ziehen</strong>
+        <span>oder klicken zum Auswählen · PNG, JPG, PDF · max. 10 MB je Datei · mehrere auf einmal</span>
+        <input type="file" id="file-input" name="files" accept=".png,.jpg,.jpeg,.pdf" multiple>
+        <span class="drop-status" id="drop-status"></span>
+      </label>
+      <noscript><button class="btn btn-primary" type="submit">Hochladen</button></noscript>
+    </form>
+
+    <form method="post" action="{{ url_for('fetch') }}" class="urlform">
+      <input type="url" name="url" placeholder="https://…/malvorlage.pdf – Link zu einer PNG-, JPG- oder PDF-Datei" required>
+      <button class="btn btn-ghost" type="submit">Von Link holen</button>
+    </form>
+
+    {% if images %}
+    <div class="pool">
+      {% for img in images %}
+      <article class="tile {{ 'tile-next' if img.is_next }}">
+        <div class="tile-img">
+          <img src="{{ url_for('image_thumb', name=img.name) }}?v={{ img.mtime }}" alt="{{ img.name }}" loading="lazy">
+          {% if img.is_next %}<span class="badge">Als Nächstes</span>{% endif %}
+          {% if img.kind == 'pdf' %}<span class="badge badge-kind">PDF</span>{% endif %}
+        </div>
+        <div class="tile-body">
+          <div class="fname" title="{{ img.name }}">{{ img.name }}</div>
+          <div class="muted small">
+            {% if img.printed_iso %}Zuletzt gedruckt {{ img.last_printed }}{% else %}Noch nie gedruckt{% endif %}
+            · {{ img.size_kb }} KB
+          </div>
+          <div class="tile-actions">
+            <form method="post" action="{{ url_for('print_image', name=img.name) }}" data-confirm="„{{ img.name }}“ jetzt drucken?">
+              <button class="btn btn-mini btn-primary" type="submit">Drucken</button>
+            </form>
+            <button class="btn btn-mini btn-ghost" type="button" data-preview="{{ url_for('preview', image=img.name) }}">Vorschau</button>
+            <form method="post" action="{{ url_for('delete_image', name=img.name) }}" data-confirm="„{{ img.name }}“ wirklich löschen?">
+              <button class="btn btn-mini btn-danger" type="submit">Löschen</button>
+            </form>
+          </div>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="empty">
+      Noch keine Bilder. Ohne Bilder druckt AutoPrint die synthetische Farbtestseite.
+    </p>
+    {% endif %}
+
+    <details class="sources">
+      <summary>Woher bekomme ich Bilder für Kinder?</summary>
+      <p>
+        AutoPrint sucht bewusst <strong>nicht</strong> selbst im Internet: Figuren wie Paw Patrol, Peppa Pig oder
+        Mascha und der Bär sind geschützt, es gibt keine offizielle Schnittstelle, und niemand garantiert,
+        dass ein zufälliger Treffer kindgerecht ist. Besser: ein paar Vorlagen vorab besorgen und hier in den Pool legen.
+      </p>
+      <ul>
+        <li>Offizielle, kostenlose Malvorlagen der Rechteinhaber (z.&nbsp;B. die Aktivitäten-Seiten von Nick&nbsp;Jr. für Paw Patrol, peppapig.com, die offizielle Mascha-Seite). Link kopieren und oben „Von Link holen“.</li>
+        <li>Gemeinfreie Grafiken, z.&nbsp;B. openclipart.org oder Wikimedia Commons.</li>
+        <li>Eigene Zeichnungen der Kinder einscannen oder abfotografieren.</li>
+        <li>Bunte Fotos: je mehr Farbe, desto besser für die Düsen.</li>
+      </ul>
+      <p class="muted small">Für den Hausgebrauch drucken ist in Ordnung. Die Dateien sollten nicht weiterverteilt werden.</p>
+    </details>
+  </section>
+
+  <!-- ───────────── Verlauf ───────────── -->
+  {% if history %}
+  <section class="card">
+    <h2>Verlauf</h2>
+    <ol class="timeline">
+      {% for e in history %}
+      <li class="{{ 'ok' if e.success else 'err' }}">
+        <span class="tl-dot"></span>
+        <div class="tl-body">
+          <div class="tl-head">
+            <strong>{{ e.time }}</strong>
+            {% if e.manual %}<span class="tag">manuell</span>{% else %}<span class="tag tag-sched">Zeitplan</span>{% endif %}
+            {% if e.image %}<span class="fname">{{ e.image }}</span>{% else %}<span class="muted">Farbtestseite</span>{% endif %}
+          </div>
+          <div class="muted small">
+            {% if e.opts %}{{ e.opts.quality }} · {{ e.opts.media_type }} · Streifen {{ e.opts.strip }}{% endif %}
+            {% if not e.success %}<span class="tl-err">{{ e.msg }}</span>{% endif %}
+          </div>
+        </div>
+      </li>
+      {% endfor %}
+    </ol>
+  </section>
+  {% endif %}
+
+  <footer class="foot">
+    <span>Drucker <code>{{ printer_name }}</code> · <code>{{ printer_uri or '–' }}</code></span>
+    <span><a href="http://{{ request.host.split(':')[0] }}:631" target="_blank" rel="noopener">CUPS-Verwaltung</a> · <a href="{{ url_for('status') }}">Status (JSON)</a></span>
+  </footer>
 </div>
+
+<!-- ───────────── Vorschau-Overlay ───────────── -->
+<div class="overlay" id="overlay" hidden>
+  <div class="overlay-box" role="dialog" aria-modal="true" aria-label="Vorschau">
+    <div class="overlay-head">
+      <strong>Vorschau des Ausdrucks</strong>
+      <button class="flash-x" type="button" id="overlay-close" aria-label="Schließen">&times;</button>
+    </div>
+    <div class="overlay-body">
+      <div class="spinner" id="overlay-spinner"></div>
+      <img id="overlay-img" alt="Vorschau" hidden>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='app.js') }}?v={{ version }}"></script>
 </body>
 </html>

@@ -103,6 +103,10 @@ if [ -n "$PRINTER_URI" ]; then
             -o ColorModel=RGB
         lpoptions -d "$PNAME"
         echo "Printer '$PNAME' configured (IPP Everywhere, A4, color, quality 5)."
+        # Show which paper types / qualities the printer advertises. The
+        # dashboard's "Papier" dropdown is built from the same IPP data.
+        echo "Supported media types / qualities reported by the printer:"
+        ipptool -T 8 -tv "$PRINTER_URI" get-printer-attributes.test 2>/dev/null | grep -E '^[[:space:]]*(media-type-supported|print-quality-supported|print-content-optimize-supported) ' | sed 's/^/    /' || echo "    (not available)"
     else
         echo ""
         echo "WARNING: CUPS queue registration failed."

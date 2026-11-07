@@ -36,6 +36,14 @@ services:
       PRINT_WEEKDAY: ${PRINT_WEEKDAY}
       PRINT_TIME: ${PRINT_TIME}
       TZ: ${TZ}
+      # ---- Initial print settings (changeable later in the dashboard) ----
+      PRINT_QUALITY: ${PRINT_QUALITY:-5}
+      PRINT_MEDIA_TYPE: ${PRINT_MEDIA_TYPE:-stationery}
+      PRINT_CONTENT_OPTIMIZE: ${PRINT_CONTENT_OPTIMIZE:-photo}
+      MAINTENANCE_STRIP: ${MAINTENANCE_STRIP:-on}
+      STRIP_POSITION: ${STRIP_POSITION:-top}
+      IMAGE_ORDER: ${IMAGE_ORDER:-roundrobin}
+      # SECRET_KEY: ${SECRET_KEY}
 
     # ---- DNS for .home.arpa resolution ----
     # Optional: set DNS server from .env if hostname resolution fails in container.

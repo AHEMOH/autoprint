@@ -1,23 +1,32 @@
 # AutoPrint
 
-AutoPrint prints a colorful maintenance page on a weekly schedule to reduce inkjet nozzle clogging.
+AutoPrint prints one colorful page per week so the printhead nozzles of an inkjet
+printer (Canon GX2050 / MegaTank in particular) do not clog. Yellow is usually the
+first channel to go, so yellow gets extra attention.
 
-It is designed for Docker + CUPS and works best with IPP Everywhere printers.
+It runs as a single Docker container with CUPS + IPP Everywhere, so no vendor driver
+is needed. A small web dashboard (German) lets you manage images and print settings.
 
 ## What you get
 
-- Weekly scheduled maintenance print
-- Manual print trigger from web UI
-- Bring-your-own images (PDF/PNG/JPG) — kid coloring pages, scanned drawings, anything you have a right to print
-- Round-robin through your images so nothing repeats unnecessarily
-- A slim color strip is always appended to keep every ink nozzle in use, regardless of the image
-- IPP reachability check before each print
-- CUPS queue handling inside the container
+- Weekly scheduled maintenance print plus a "print now" button
+- **Maintenance color strip on every page** – a CMYK strip with triple yellow and a
+  yellow density ramp. By default it sits at the **top** of the page, so the nozzles
+  are flushed *before* the actual picture is printed and the picture comes out clean.
+- **Photo quality on demand** – choose print quality and paper mode (plain / photo)
+  in the dashboard. Photo mode makes the printer lay down noticeably more ink.
+  The paper list is read from the printer's own IPP capabilities.
+- **Image pool** – upload several PNG/JPG/PDF files at once (drag & drop), or import
+  a file from a URL. Thumbnails, per-image print / preview / delete.
+- Round-robin (longest-unprinted first) or random selection
+- Synthetic color test page as fallback when the pool is empty
+- Preview of the exact page that will be printed
+- Settings are changed in the dashboard and persist in the data volume, no restart needed
+- IPP reachability check before each print, history of the last 20 jobs
+- Light and dark theme, works on a phone, no external assets (fine without internet)
 - Ready-to-use images on Docker Hub and GHCR
 
 ## Quick start (recommended: published image)
-
-Use this `docker-compose.yml` template and replace placeholders.
 
 ```yaml
 services:
@@ -43,30 +52,38 @@ volumes:
   autoprint_data:
 ```
 
-Start:
-
 ```bash
 docker compose up -d
 ```
 
-Open:
-
 - Dashboard: `http://localhost:8080`
 - CUPS UI: `http://localhost:631`
+- JSON status: `http://localhost:8080/status`
 
 ## Environment variables
 
 | Variable | Required | Example | Description |
 |---|---|---|---|
 | `PRINTER_URI` | yes | `ipp://printer.local/ipp/print` | Printer IPP endpoint |
-| `PRINT_WEEKDAY` | yes | `monday` | `monday` to `sunday` |
+| `PRINT_WEEKDAY` | yes | `monday` | `monday` to `sunday` (lowercase English) |
 | `PRINT_TIME` | yes | `08:00` | 24h format |
 | `TZ` | yes | `Europe/Berlin` | Container timezone |
 | `PRINTER_NAME` | no | `MyPrinter` | CUPS queue name |
-| `MAINTENANCE_STRIP` | no | `on` | Append color strip to user images (`on`/`off`) |
-| `GUNICORN_WORKERS` | no | `1` | Gunicorn worker processes |
+| `PRINT_QUALITY` | no | `5` | Initial IPP print-quality: `4` normal, `5` high |
+| `PRINT_MEDIA_TYPE` | no | `stationery` | Initial IPP media-type keyword (`photographic-glossy` = photo mode) |
+| `PRINT_CONTENT_OPTIMIZE` | no | `photo` | IPP print-content-optimize (`auto`/`photo`), sent only if supported |
+| `MAINTENANCE_STRIP` | no | `on` | Initial strip on/off |
+| `STRIP_POSITION` | no | `top` | Initial strip position `top` / `bottom` |
+| `IMAGE_ORDER` | no | `roundrobin` | Initial selection `roundrobin` / `random` |
+| `SECRET_KEY` | no | random | Flask secret for dashboard flash messages |
+| `GUNICORN_WORKERS` | no | `1` | Keep at 1 (the scheduler runs per process) |
 | `GUNICORN_THREADS` | no | `4` | Threads per worker |
 | `GUNICORN_TIMEOUT` | no | `60` | Request timeout (seconds) |
+
+The print settings (`PRINT_QUALITY`, `PRINT_MEDIA_TYPE`, `MAINTENANCE_STRIP`,
+`STRIP_POSITION`, `IMAGE_ORDER`) are **initial values only**. Once changed in the
+dashboard they are stored in `/data/settings.json`, which takes precedence. Delete
+that file to go back to the environment values.
 
 ## docker run (alternative)
 
@@ -85,32 +102,54 @@ docker run -d \
   <registry-user>/autoprint:latest
 ```
 
-## Bring your own images
+## Photo quality and nozzle flushing
 
-Drop `.pdf`, `.png`, `.jpg`, or `.jpeg` files into the dashboard's **Images** card
-(or directly into the `autoprint_data` volume under `/data/images/`).
-AutoPrint then prints them on the weekly schedule, round-robin (oldest-printed first),
-instead of the synthetic color test page. An empty folder always falls back to the test page.
+`print-quality=5` (IPP "high") is the default. The real "photo mode" of a Canon
+inkjet is selected through the **paper type**: choosing a photographic media type
+(e.g. `photographic-glossy`) makes the printer use its photo ink laydown, which puts
+much more ink through every nozzle – good for flushing, but the sheet gets wetter on
+plain paper. The dashboard's paper dropdown lists exactly the `media-type-supported`
+keywords your printer reports (cached in `/data/printer_caps.json`).
 
-A slim color **maintenance strip** is automatically composited onto the bottom of
-every printed user image (or appended as an extra page for PDFs). This keeps every
-ink nozzle — especially yellow — in regular use even when the image itself is
-mostly one color. Disable with `MAINTENANCE_STRIP=off` if you really do not want it.
+The maintenance strip is printed **first** (top of the page, or as a leading page for
+PDFs) so that cyan, magenta, yellow and black are all flowing before the picture
+itself is printed. Switch it to the bottom or off in the dashboard if you prefer.
 
-Where to get printable images legally:
+To see what your printer advertises:
 
-- Official free coloring pages from the IP owner — e.g. Spin Master / Nickelodeon
-  for *Paw Patrol*, Disney's "Family" site for *Frozen*, etc.
-- Public-domain coloring sources like [openclipart.org](https://openclipart.org)
-- Scans of your kid's own drawings
+```bash
+docker exec autoprint ipptool -tv "$PRINTER_URI" get-printer-attributes.test \
+  | grep -E 'media-type-supported|print-quality-supported|print-content-optimize-supported'
+```
 
-Do not redistribute copyrighted material — printing for personal/family use is
-typically fine; bundling those files into a public Docker image is not.
+## Bring your own images (kids' coloring pages etc.)
+
+Upload `.pdf`, `.png`, `.jpg` or `.jpeg` files in the dashboard (several at once,
+drag & drop) or paste a direct link to a file and click "Von Link holen". Files land in
+the `autoprint_data` volume under `/data/images/`. AutoPrint then prints them on the
+weekly schedule instead of the synthetic test page; an empty pool always falls back
+to the test page.
+
+AutoPrint deliberately does **not** search the internet for pictures of Paw Patrol,
+Peppa Pig and friends: those characters are copyrighted, there is no official API,
+and nothing guarantees that a random hit is suitable for children. Collect a few
+pages in advance instead:
+
+- Official free coloring pages from the rights holders (Nick Jr. activity pages for
+  Paw Patrol, peppapig.com, the official Masha and the Bear site, Disney "Family", …)
+- Public-domain graphics, e.g. [openclipart.org](https://openclipart.org) or Wikimedia Commons
+- Scans or photos of your kids' own drawings
+- Colorful photos – the more color, the better for the nozzles
+
+Printing for personal/family use is fine; do not redistribute copyrighted files or
+bundle them into a public Docker image.
 
 ## Notes
 
 - The container uses Gunicorn (WSGI) for production web serving.
-- If `.local` or `.home.arpa` names do not resolve inside Docker, use the printer IP in `PRINTER_URI`.
+- If `.local` or `.home.arpa` names do not resolve inside Docker, use the printer IP in
+  `PRINTER_URI`, or set `dns:` / `extra_hosts:` in `docker-compose.yml`.
+- PDF thumbnails and previews use poppler (`pdftoppm`), included in the image.
 - Do not publish private network values in public repos.
 
 ## License

@@ -5,13 +5,14 @@ LABEL description="AutoPrint - Weekly color print to reduce nozzle clogging"
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1
 
-# CUPS printing stack + fonts for generated image
+# CUPS printing stack, fonts for generated pages, poppler for PDF thumbnails
 RUN apt-get update && apt-get install -y --no-install-recommends \
         cups \
         cups-client \
         cups-filters \
         cups-bsd \
         fonts-dejavu-core \
+        poppler-utils \r
     && rm -rf /var/lib/apt/lists/*
 
 # Python dependencies
@@ -25,8 +26,9 @@ RUN pip install --no-cache-dir \
 COPY entrypoint.sh /entrypoint.sh
 COPY autoprint.py  /app/autoprint.py
 COPY templates/    /app/templates/
+COPY static/       /app/static/
 
-RUN chmod +x /entrypoint.sh && mkdir -p /data/images
+RUN chmod +x /entrypoint.sh && mkdir -p /data/images /data/thumbs
 
 WORKDIR /app
 
