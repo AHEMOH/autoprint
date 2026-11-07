@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         cups-filters \
         cups-bsd \
         fonts-dejavu-core \
-        poppler-utils \r
+        poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Python dependencies
