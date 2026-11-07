@@ -66,6 +66,53 @@
     });
   }
 
+  // ---- Bilderpool sortieren (Drag & Drop der Kacheln) ----------------------
+  var pool = document.getElementById("pool");
+  if (pool) {
+    var dragged = null;
+    var before  = "";
+    var names = function () {
+      return Array.prototype.map.call(pool.querySelectorAll(".tile"), function (t) { return t.dataset.name; });
+    };
+    pool.querySelectorAll(".tile").forEach(function (tile) {
+      tile.addEventListener("dragstart", function (ev) {
+        dragged = tile;
+        before = names().join("\n");
+        tile.classList.add("dragging");
+        ev.dataTransfer.effectAllowed = "move";
+        try { ev.dataTransfer.setData("text/plain", tile.dataset.name); } catch (e) { /* IE */ }
+      });
+      tile.addEventListener("dragend", function () {
+        tile.classList.remove("dragging");
+        dragged = null;
+        var order = names();
+        if (order.join("\n") === before) { return; }
+        pool.classList.add("saving");
+        fetch(pool.dataset.orderUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ order: order })
+        })
+          .then(function (r) { if (!r.ok) { throw new Error(r.status); } })
+          .catch(function () { window.alert("Reihenfolge konnte nicht gespeichert werden."); })
+          .then(function () { window.location.reload(); });
+      });
+    });
+    pool.addEventListener("dragover", function (ev) {
+      if (!dragged) { return; }
+      ev.preventDefault();
+      ev.stopPropagation();
+      var target = ev.target.closest ? ev.target.closest(".tile") : null;
+      if (!target || target === dragged) { return; }
+      var r = target.getBoundingClientRect();
+      var after = (ev.clientX - r.left) > r.width / 2;
+      pool.insertBefore(dragged, after ? target.nextSibling : target);
+    });
+    pool.addEventListener("drop", function (ev) {
+      if (dragged) { ev.preventDefault(); ev.stopPropagation(); }
+    });
+  }
+
   // ---- Vorschau-Overlay ----------------------------------------------------
   var overlay = document.getElementById("overlay");
   var img     = document.getElementById("overlay-img");

@@ -184,6 +184,17 @@ select:focus, input:focus { outline: 2px solid var(--accent); outline-offset: 1p
 .tile-img img { width: 100%; height: 100%; object-fit: contain; display: block; background: #fff; }
 .badge { position: absolute; top: 8px; left: 8px; background: var(--accent); color: #fff; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; letter-spacing: .02em; }
 .badge-kind { left: auto; right: 8px; background: rgba(28,31,38,.75); }
+.badge-pos { min-width: 24px; text-align: center; background: rgba(28,31,38,.78); }
+.badge-next { top: auto; bottom: 8px; }
+.pool-hint { margin-top: 16px; line-height: 1.5; }
+.tile[draggable="true"] { cursor: grab; }
+.tile.dragging { opacity: .45; outline: 2px dashed var(--accent); outline-offset: -2px; }
+.pool.saving { opacity: .6; pointer-events: none; }
+.tile-move { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-top: 6px; }
+.tile-move form { display: inline; }
+.btn-icon { padding: 4px 8px; line-height: 0; }
+.btn-icon:disabled { opacity: .35; cursor: default; }
+.drag-handle { color: var(--muted); display: inline-flex; padding: 2px 6px; cursor: grab; }
 .tile-body { padding: 10px 11px 11px; display: flex; flex-direction: column; gap: 4px; }
 .tile-body .fname { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tile-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }

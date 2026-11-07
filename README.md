@@ -18,7 +18,9 @@ is needed. A small web dashboard (German) lets you manage images and print setti
   The paper list is read from the printer's own IPP capabilities.
 - **Image pool** – upload several PNG/JPG/PDF files at once (drag & drop), or import
   a file from a URL. Thumbnails, per-image print / preview / delete.
-- Round-robin (longest-unprinted first) or random selection
+- Fixed order you arrange in the dashboard (drag tiles or use the arrows), round-robin
+  (longest-unprinted first) or random selection
+- Multi-page PDFs are split into single pages automatically; every print is exactly one A4 sheet
 - Synthetic color test page as fallback when the pool is empty
 - Preview of the exact page that will be printed
 - Settings are changed in the dashboard and persist in the data volume, no restart needed
@@ -74,7 +76,7 @@ docker compose up -d
 | `PRINT_CONTENT_OPTIMIZE` | no | `photo` | IPP print-content-optimize (`auto`/`photo`), sent only if supported |
 | `MAINTENANCE_STRIP` | no | `on` | Initial strip on/off |
 | `STRIP_POSITION` | no | `top` | Initial strip position `top` / `bottom` |
-| `IMAGE_ORDER` | no | `roundrobin` | Initial selection `roundrobin` / `random` |
+| `IMAGE_ORDER` | no | `sequence` | Initial selection `sequence` (fixed order set in the dashboard) / `roundrobin` / `random` |
 | `SECRET_KEY` | no | random | Flask secret for dashboard flash messages |
 | `GUNICORN_WORKERS` | no | `1` | Keep at 1 (the scheduler runs per process) |
 | `GUNICORN_THREADS` | no | `4` | Threads per worker |
@@ -111,8 +113,8 @@ much more ink through every nozzle – good for flushing, but the sheet gets wet
 plain paper. The dashboard's paper dropdown lists exactly the `media-type-supported`
 keywords your printer reports (cached in `/data/printer_caps.json`).
 
-The maintenance strip is printed **first** (top of the page, or as a leading page for
-PDFs) so that cyan, magenta, yellow and black are all flowing before the picture
+Every print is **exactly one A4 sheet**. The maintenance strip is printed **first** (top
+of the page; PDF pages are rendered and composed onto the same sheet) so that cyan, magenta, yellow and black are all flowing before the picture
 itself is printed. Switch it to the bottom or off in the dashboard if you prefer.
 
 To see what your printer advertises:

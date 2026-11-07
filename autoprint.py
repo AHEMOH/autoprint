@@ -27,7 +27,6 @@ import os
 import random
 import re
 import secrets
-import shutil
 import subprocess
 import tempfile
 import threading
@@ -54,7 +53,7 @@ log = logging.getLogger(__name__)
 
 # Bump this on every release - it shows up in the startup log, in /status,
 # and in the dashboard header so you can verify which build is running.
-VERSION = "2.0.0"
+VERSION = "2.1.0"
 
 # ---------------------------------------------------------------------------
 # Configuration from environment variables
@@ -91,13 +90,17 @@ def _env_choice(name: str, choices, default):
 
 # Initial values for /data/settings.json. Once the file exists its values win;
 # a key that is missing from the file falls back to these defaults.
+IMAGE_ORDERS = ("sequence", "roundrobin", "random")
+ORDER_LABELS = {"sequence": "Feste Reihenfolge", "roundrobin": "Round-Robin", "random": "Zufällig"}
+MAX_SPLIT_PAGES = 200   # multi-page PDFs are split into single pages up to this size
+
 SETTINGS_DEFAULTS = {
     "quality":          5 if os.environ.get("PRINT_QUALITY", "5").strip() == "5" else 4,
     "media_type":       os.environ.get("PRINT_MEDIA_TYPE", "stationery").strip() or "stationery",
     "content_optimize": _env_choice("PRINT_CONTENT_OPTIMIZE", ("auto", "photo"), "photo"),
     "strip_enabled":    _env_bool("MAINTENANCE_STRIP", True),
     "strip_position":   _env_choice("STRIP_POSITION", ("top", "bottom"), "top"),
-    "image_order":      _env_choice("IMAGE_ORDER", ("roundrobin", "random"), "roundrobin"),
+    "image_order":      _env_choice("IMAGE_ORDER", IMAGE_ORDERS, "sequence"),
 }
 
 QUALITY_LABELS = {4: "Normal", 5: "Hoch"}
@@ -191,6 +194,7 @@ RAINBOW   = [
 ]
 
 _io_lock = threading.Lock()
+_state_lock = threading.RLock()   # serialises load-modify-save of state.json
 
 
 # ---------------------------------------------------------------------------
@@ -218,6 +222,8 @@ def load_state() -> dict:
     state.setdefault("print_count", 0)
     state.setdefault("history", [])
     state.setdefault("image_history", {})
+    state.setdefault("order", [])
+    state.setdefault("sequence_last", None)
     return state
 
 
@@ -244,7 +250,7 @@ def sanitize_settings(raw: dict, base: Optional[dict] = None) -> dict:
     if sp in ("top", "bottom"):
         s["strip_position"] = sp
     io_ = str(raw.get("image_order", s["image_order"])).strip().lower()
-    if io_ in ("roundrobin", "random"):
+    if io_ in IMAGE_ORDERS:
         s["image_order"] = io_
     return s
 
@@ -410,20 +416,6 @@ def build_color_test_image() -> Image.Image:
     return img
 
 
-def build_strip_only_page(position: str = "top") -> Image.Image:
-    """A4 page holding only the maintenance strip; used as an extra page for PDFs."""
-    img  = Image.new("RGB", (PAGE_W, PAGE_H), "white")
-    draw = ImageDraw.Draw(img)
-    strip_y = 0 if position == "top" else PAGE_H - STRIP_H
-    text_y  = STRIP_H + 60 if position == "top" else 70
-    _paint_maintenance_strip(draw, 0, strip_y, PAGE_W, STRIP_H)
-    title, sub = _get_font(44), _get_font(26)
-    draw.text((40, text_y),      "Düsenpflege-Seite",                               fill=(60, 60, 60),    font=title)
-    draw.text((40, text_y + 66), "Der Farbstreifen spült alle Düsen des Druckkopfs", fill=(120, 120, 120), font=sub)
-    draw.text((40, text_y + 102), "(vor allem Gelb), bevor das eigentliche Dokument kommt.", fill=(120, 120, 120), font=sub)
-    return img
-
-
 def _flatten(img: Image.Image) -> Image.Image:
     """Convert any PIL image to RGB, flattening transparency on white."""
     if img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info):
@@ -435,7 +427,8 @@ def _flatten(img: Image.Image) -> Image.Image:
 
 
 def _render_pdf_first_page(pdf: Path, width: int) -> Optional[Image.Image]:
-    """Rasterize page 1 of a PDF via poppler's pdftoppm. None if unavailable."""
+    """Rasterize page 1 of a PDF via poppler's pdftoppm so that its longer
+    side is `width` pixels. None if poppler is unavailable."""
     try:
         with tempfile.TemporaryDirectory() as td:
             prefix = Path(td) / "page"
@@ -490,26 +483,15 @@ def compose_page(user: Image.Image, with_strip: bool, position: str) -> Image.Im
 
 
 def fit_raster_to_a4(src: Path, with_strip: bool, position: str = "top") -> Image.Image:
-    return compose_page(load_source_image(src), with_strip, position)
+    """Exactly one A4 page: the image (or page 1 of a PDF) plus the strip."""
+    return compose_page(load_source_image(src, PAGE_H), with_strip, position)
 
 
 def build_preview_image(src: Optional[Path], settings: dict) -> Image.Image:
-    """What the next print will look like. For PDFs both the strip page and
-    page 1 are shown side by side in print order."""
+    """What the next print will look like (always one A4 page)."""
     if src is None:
         return build_color_test_image()
-    strip, pos = settings["strip_enabled"], settings["strip_position"]
-    if src.suffix.lower() != ".pdf":
-        return fit_raster_to_a4(src, strip, pos)
-    first = compose_page(load_source_image(src), False, pos)
-    if not strip:
-        return first
-    pages = [build_strip_only_page(pos), first] if pos == "top" else [first, build_strip_only_page(pos)]
-    gap = 40
-    sheet = Image.new("RGB", (PAGE_W * 2 + gap, PAGE_H), (210, 210, 210))
-    sheet.paste(pages[0], (0, 0))
-    sheet.paste(pages[1], (PAGE_W + gap, 0))
-    return sheet
+    return fit_raster_to_a4(src, settings["strip_enabled"], settings["strip_position"])
 
 
 # ---------------------------------------------------------------------------
@@ -517,17 +499,135 @@ def build_preview_image(src: Optional[Path], settings: dict) -> Image.Image:
 # ---------------------------------------------------------------------------
 
 def _pool_files() -> list:
+    """Pool files in the user-defined order (state["order"]); files that are
+    not in that list yet (e.g. copied into the volume by hand) follow by name."""
     if not IMAGE_DIR.exists():
         return []
-    return sorted(
-        (p for p in IMAGE_DIR.iterdir() if p.is_file() and p.suffix.lower() in ALLOWED_EXT),
-        key=lambda p: p.name.lower(),
-    )
+    files = [p for p in IMAGE_DIR.iterdir() if p.is_file() and p.suffix.lower() in ALLOWED_EXT]
+    pos = {n: i for i, n in enumerate(load_state().get("order", []))}
+    return sorted(files, key=lambda p: (pos.get(p.name, len(pos)), p.name.lower()))
+
+
+def set_pool_order(names: list) -> list:
+    """Persist a new pool order. Unknown names are ignored, missing pool files
+    are appended in their current order. Returns the effective order."""
+    with _state_lock:
+        current = [p.name for p in _pool_files()]
+        known = set(current)
+        wanted = [n for n in dict.fromkeys(names) if n in known]
+        taken = set(wanted)
+        order = wanted + [n for n in current if n not in taken]
+        state = load_state()
+        state["order"] = order
+        save_state(state)
+        return order
+
+
+def move_pool_image(name: str, direction: str) -> bool:
+    """Move one image: up/down by one position, or to first/last."""
+    with _state_lock:
+        order = [p.name for p in _pool_files()]
+        if name not in order:
+            return False
+        i = order.index(name)
+        order.pop(i)
+        j = {"up": i - 1, "down": i + 1, "first": 0, "last": len(order)}.get(direction, i)
+        order.insert(max(0, min(j, len(order))), name)
+        set_pool_order(order)
+        return True
+
+
+def _order_replace(old: str, new_names: list) -> None:
+    """Put new_names where `old` sits in the order (or at the end)."""
+    with _state_lock:
+        current = [n for n in (p.name for p in _pool_files()) if n == old or n not in new_names]
+        if old in current:
+            i = current.index(old)
+            current[i:i + 1] = new_names
+        else:
+            current += [n for n in new_names if n not in current]
+        state = load_state()
+        state["order"] = current
+        if state.get("sequence_last") == old and old not in new_names:
+            state["sequence_last"] = new_names[-1] if new_names else None
+        save_state(state)
+
+
+def split_pdf_pages(src: Path) -> list:
+    """Split a multi-page PDF in the pool into single-page PDFs
+    (<stem>_Seite01.pdf, ...) at the same position in the order.
+    Returns the resulting pool names (just [src.name] if nothing to split)."""
+    from pypdf import PdfReader, PdfWriter
+    try:
+        reader = PdfReader(str(src))
+        if reader.is_encrypted:
+            reader.decrypt("")
+        count = len(reader.pages)
+    except Exception as exc:
+        log.warning(f"Could not read PDF {src.name} for splitting: {exc}")
+        return [src.name]
+    if count <= 1:
+        return [src.name]
+    if count > MAX_SPLIT_PAGES:
+        log.warning(f"{src.name} has {count} pages (> {MAX_SPLIT_PAGES}), not splitting")
+        return [src.name]
+
+    digits = max(2, len(str(count)))
+    names = []
+    try:
+        for i, page in enumerate(reader.pages, 1):
+            writer = PdfWriter()
+            writer.add_page(page)
+            dest = _unique_dest(f"{src.stem}_Seite{i:0{digits}d}.pdf")
+            with open(dest, "wb") as f:
+                writer.write(f)
+            names.append(dest.name)
+    except Exception as exc:
+        log.warning(f"Splitting {src.name} failed, keeping original: {exc}")
+        for n in names:
+            (IMAGE_DIR / n).unlink(missing_ok=True)
+        return [src.name]
+
+    with _state_lock:
+        _order_replace(src.name, names)
+        src.unlink()
+        _thumb_path(src.name).unlink(missing_ok=True)
+        state = load_state()
+        if state["image_history"].pop(src.name, None) is not None:
+            save_state(state)
+    log.info(f"Split {src.name} into {count} single pages")
+    return names
+
+
+def add_to_pool(name: str) -> list:
+    """Register a freshly stored pool file: append it to the order and split
+    multi-page PDFs. Returns the resulting pool names."""
+    with _state_lock:
+        order = [n for n in (p.name for p in _pool_files()) if n != name] + [name]
+        state = load_state()
+        state["order"] = order
+        save_state(state)
+    src = IMAGE_DIR / name
+    if src.suffix.lower() == ".pdf":
+        return split_pdf_pages(src)
+    return [name]
+
+
+def split_existing_pdfs() -> None:
+    """Startup migration: split multi-page PDFs already in the pool."""
+    for p in _pool_files():
+        if p.suffix.lower() == ".pdf":
+            try:
+                split_pdf_pages(p)
+            except Exception as exc:
+                log.warning(f"PDF split of {p.name} failed: {exc}")
 
 
 def pick_next_image(settings: Optional[dict] = None) -> Optional[Path]:
     """Next pool image to print, or None if the pool is empty (synthetic page).
 
+    sequence:   the image after the last automatically printed one, in the
+                order set in the dashboard (wraps around).
     roundrobin: the image printed longest ago (never-printed first).
     random:     any image except the one printed most recently.
     """
@@ -535,7 +635,14 @@ def pick_next_image(settings: Optional[dict] = None) -> Optional[Path]:
     if not files:
         return None
     settings = settings or load_settings()
-    image_history = load_state().get("image_history", {})
+    state = load_state()
+    image_history = state.get("image_history", {})
+    if settings["image_order"] == "sequence":
+        names = [p.name for p in files]
+        last = state.get("sequence_last")
+        if last in names:
+            return files[(names.index(last) + 1) % len(files)]
+        return files[0]
     if settings["image_order"] == "random" and len(files) > 1:
         last = max(files, key=lambda p: image_history.get(p.name, ""))
         if image_history.get(last.name):
@@ -645,11 +752,18 @@ def fetch_url_to_pool(url: str) -> str:
 
 
 def delete_pool_image(name: str) -> None:
-    src = IMAGE_DIR / name
-    src.unlink()
-    _thumb_path(name).unlink(missing_ok=True)
-    state = load_state()
-    if state["image_history"].pop(name, None) is not None:
+    with _state_lock:
+        order = [p.name for p in _pool_files()]
+        src = IMAGE_DIR / name
+        src.unlink()
+        _thumb_path(name).unlink(missing_ok=True)
+        state = load_state()
+        state["image_history"].pop(name, None)
+        state["order"] = [n for n in order if n != name]
+        if state.get("sequence_last") == name:
+            # keep the sequence going: the image after the deleted one is next
+            i = order.index(name)
+            state["sequence_last"] = order[i - 1] if i > 0 else None
         save_state(state)
 
 
@@ -658,12 +772,12 @@ def delete_pool_image(name: str) -> None:
 # ---------------------------------------------------------------------------
 
 def prepare_print_file(src: Optional[Path], settings: dict) -> Path:
-    """Build a print-ready PDF in DATA_DIR and return its path.
+    """Build a print-ready, single-page A4 PDF in DATA_DIR and return its path.
+    Every print is exactly one sheet of paper.
 
-    - src is None:     synthetic full-page color test (no extra strip needed).
-    - src is a PDF:    strip page + original pages (strip_position=top) or
-                       original pages + strip page (bottom). With the strip
-                       disabled the PDF is passed through unchanged.
+    - src is None:     synthetic full-page color test.
+    - src is a PDF:    page 1 is rendered (pdftoppm) and composed like a raster.
+                       Without poppler, page 1 is passed through without strip.
     - src is a raster: image fit to A4 with the strip composited into the
                        top or bottom of the same page (when enabled).
     """
@@ -676,22 +790,17 @@ def prepare_print_file(src: Optional[Path], settings: dict) -> Path:
         return out
 
     if src.suffix.lower() == ".pdf":
-        if not strip:
-            shutil.copy(src, out)
+        page = _render_pdf_first_page(src, PAGE_H)
+        if page is not None:
+            compose_page(page, strip, pos).save(str(out), "PDF", resolution=150.0)
             return out
+        # No poppler: never print more than one sheet, pass page 1 through as is.
         from pypdf import PdfReader, PdfWriter
-        strip_tmp = DATA_DIR / f"_strip_{ts}.pdf"
-        build_strip_only_page(pos).save(str(strip_tmp), "PDF", resolution=150.0)
+        log.warning(f"pdftoppm unavailable, printing page 1 of {src.name} without strip")
         writer = PdfWriter()
-        user_pages  = PdfReader(str(src)).pages
-        strip_pages = PdfReader(str(strip_tmp)).pages
-        order = [strip_pages, user_pages] if pos == "top" else [user_pages, strip_pages]
-        for pages in order:
-            for page in pages:
-                writer.add_page(page)
+        writer.add_page(PdfReader(str(src)).pages[0])
         with open(out, "wb") as f:
             writer.write(f)
-        strip_tmp.unlink(missing_ok=True)
         return out
 
     fit_raster_to_a4(src, strip, pos).save(str(out), "PDF", resolution=150.0)
@@ -825,6 +934,7 @@ def do_print(manual: bool = False, image: Optional[Path] = None) -> bool:
         _record(success=False, manual=manual, msg=msg, image=image, opts=opts_summary)
         return False
 
+    picked = image is None   # chosen by the selection logic, not a per-image button
     if image is None:
         image = pick_next_image(settings)
 
@@ -859,7 +969,8 @@ def do_print(manual: bool = False, image: Optional[Path] = None) -> bool:
         msg = str(exc)
         log.error(f"Print error: {exc}")
 
-    _record(success=success, manual=manual, msg=msg if not success else "OK", image=image, opts=opts_summary)
+    _record(success=success, manual=manual, msg=msg if not success else "OK", image=image, opts=opts_summary,
+            picked=picked)
 
     # Cleanup old generated outputs, keep only latest 5
     for old in sorted(DATA_DIR.glob("print_*.pdf"))[:-5]:
@@ -870,7 +981,13 @@ def do_print(manual: bool = False, image: Optional[Path] = None) -> bool:
     return success
 
 
-def _record(success: bool, manual: bool, msg: str, image: Optional[Path] = None, opts: Optional[dict] = None) -> None:
+def _record(success: bool, manual: bool, msg: str, image: Optional[Path] = None,
+            opts: Optional[dict] = None, picked: bool = False) -> None:
+    with _state_lock:
+        _record_locked(success, manual, msg, image, opts, picked)
+
+
+def _record_locked(success, manual, msg, image, opts, picked) -> None:
     state = load_state()
     now   = datetime.now()
     if success:
@@ -878,6 +995,8 @@ def _record(success: bool, manual: bool, msg: str, image: Optional[Path] = None,
         state["print_count"] = state.get("print_count", 0) + 1
         if image is not None:
             state["image_history"][image.name] = now.isoformat()
+            if picked:
+                state["sequence_last"] = image.name
     history = state.get("history", [])
     history.insert(0, {
         "time":    now.strftime("%d.%m.%Y %H:%M"),
@@ -951,9 +1070,10 @@ _scheduler_lock    = threading.Lock()
 def _list_images(next_image: Optional[Path]) -> list:
     image_history = load_state().get("image_history", {})
     out = []
-    for p in _pool_files():
+    for pos, p in enumerate(_pool_files(), 1):
         st = p.stat()
         out.append({
+            "pos":           pos,
             "name":          p.name,
             "kind":          "pdf" if p.suffix.lower() == ".pdf" else "bild",
             "size_kb":       max(st.st_size // 1024, 1),
@@ -987,6 +1107,7 @@ def _render():
         settings       = settings,
         media_options  = media_type_options(settings, caps),
         caps_source    = caps.get("source", "fallback"),
+        order_labels   = ORDER_LABELS,
         opts_summary   = _opts_summary(settings),
     )
 
@@ -1039,7 +1160,11 @@ def upload():
     saved, errors = [], []
     for f in files:
         try:
-            saved.append(save_upload(f))
+            name = save_upload(f)
+            pages = add_to_pool(name)
+            saved.append(name)
+            if len(pages) > 1:
+                flash(f"„{name}“ hat {len(pages)} Seiten und wurde in Einzelseiten aufgeteilt.", "ok")
         except ValueError as exc:
             errors.append(str(exc))
         except Exception as exc:
@@ -1056,7 +1181,11 @@ def upload():
 def fetch():
     try:
         name = fetch_url_to_pool(request.form.get("url", ""))
-        flash(f"Importiert: {name}", "ok")
+        pages = add_to_pool(name)
+        if len(pages) > 1:
+            flash(f"Importiert: {name} ({len(pages)} Seiten, in Einzelseiten aufgeteilt)", "ok")
+        else:
+            flash(f"Importiert: {name}", "ok")
     except ValueError as exc:
         flash(str(exc), "err")
     except Exception as exc:
@@ -1094,6 +1223,42 @@ def print_image(name):
     threading.Thread(target=do_print, kwargs={"manual": True, "image": src}, daemon=True).start()
     flash(f"Druckauftrag gestartet: {safe}", "ok")
     return redirect(url_for("index"))
+
+
+def _switch_to_sequence() -> bool:
+    """Reordering only matters in 'sequence' mode; switch to it automatically."""
+    settings = load_settings()
+    if settings["image_order"] == "sequence":
+        return False
+    settings["image_order"] = "sequence"
+    save_settings(settings)
+    log.info("Image order switched to 'sequence' after manual reordering")
+    return True
+
+
+@app.route("/images/<name>/move", methods=["POST"])
+def move_image(name):
+    safe = secure_filename(name)
+    direction = request.form.get("dir", "")
+    if direction not in ("up", "down", "first", "last") or not move_pool_image(safe, direction):
+        flash(f"Verschieben nicht möglich: {safe}", "err")
+        return redirect(url_for("index") + "#pool")
+    if _switch_to_sequence():
+        flash("Bildauswahl auf „Feste Reihenfolge“ umgestellt.", "ok")
+    return redirect(url_for("index") + "#pool")
+
+
+@app.route("/images/order", methods=["POST"])
+def reorder_images():
+    data = request.get_json(silent=True) or {}
+    names = data.get("order")
+    if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
+        return jsonify({"ok": False, "error": "order must be a list of names"}), 400
+    order = set_pool_order([secure_filename(n) for n in names])
+    switched = _switch_to_sequence()
+    if switched:
+        flash("Bildauswahl auf „Feste Reihenfolge“ umgestellt.", "ok")
+    return jsonify({"ok": True, "order": order, "switched": switched})
 
 
 @app.route("/images/<name>/delete", methods=["POST"])
@@ -1136,6 +1301,7 @@ def start_background_services() -> None:
             return
         threading.Thread(target=run_scheduler, daemon=True).start()
         _scheduler_started = True
+        split_existing_pdfs()
         settings = load_settings()
         log.info(f"=== AutoPrint v{VERSION} starting ===")
         log.info(

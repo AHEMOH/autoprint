@@ -80,7 +80,7 @@
     <div class="kpi">
       <span class="kpi-label">Bilder im Pool</span>
       <span class="kpi-value">{{ images|length }}</span>
-      <span class="kpi-hint">{{ 'Zufallsauswahl' if settings.image_order == 'random' else 'Round-Robin' }}</span>
+      <span class="kpi-hint">{{ order_labels.get(settings.image_order, settings.image_order) }}</span>
     </div>
   </section>
 
@@ -169,12 +169,13 @@
         </div>
         <span class="field-hint">
           Oben: der CMYK-Streifen wird zuerst gedruckt und spült die Düsen, bevor das eigentliche Bild kommt.
-          Bei PDFs wird eine eigene Streifenseite vorangestellt.
+          Jeder Druck ist genau ein A4-Blatt, auch bei PDFs.
         </span>
 
         <label class="field">
           <span class="field-label">Bildauswahl</span>
           <select name="image_order">
+            <option value="sequence"   {{ 'selected' if settings.image_order == 'sequence' }}>Feste Reihenfolge (wie im Bilderpool sortiert)</option>
             <option value="roundrobin" {{ 'selected' if settings.image_order == 'roundrobin' }}>Round-Robin (am längsten nicht gedruckt zuerst)</option>
             <option value="random"     {{ 'selected' if settings.image_order == 'random' }}>Zufällig (nie zweimal dasselbe hintereinander)</option>
           </select>
@@ -189,7 +190,7 @@
   </div>
 
   <!-- ───────────── Bilderpool ───────────── -->
-  <section class="card">
+  <section class="card" id="pool-card">
     <h2>Bilderpool <span class="count">{{ images|length }}</span></h2>
 
     <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data" id="upload-form">
@@ -209,12 +210,21 @@
     </form>
 
     {% if images %}
-    <div class="pool">
+    <p class="pool-hint muted small">
+      {% if settings.image_order == 'sequence' %}
+        Gedruckt wird in dieser Reihenfolge, nach dem letzten Bild geht es wieder von vorne los.
+      {% else %}
+        Aktuell: {{ order_labels.get(settings.image_order) }}. Sobald du die Reihenfolge änderst, wird auf „Feste Reihenfolge“ umgestellt.
+      {% endif %}
+      Zum Sortieren Kacheln ziehen oder die Pfeile nutzen. Mehrseitige PDFs werden automatisch in Einzelseiten aufgeteilt.
+    </p>
+    <div class="pool" id="pool" data-order-url="{{ url_for('reorder_images') }}">
       {% for img in images %}
-      <article class="tile {{ 'tile-next' if img.is_next }}">
+      <article class="tile {{ 'tile-next' if img.is_next }}" draggable="true" data-name="{{ img.name }}">
         <div class="tile-img">
-          <img src="{{ url_for('image_thumb', name=img.name) }}?v={{ img.mtime }}" alt="{{ img.name }}" loading="lazy">
-          {% if img.is_next %}<span class="badge">Als Nächstes</span>{% endif %}
+          <img src="{{ url_for('image_thumb', name=img.name) }}?v={{ img.mtime }}" alt="{{ img.name }}" loading="lazy" draggable="false">
+          <span class="badge badge-pos" title="Position in der Reihenfolge">{{ img.pos }}</span>
+          {% if img.is_next %}<span class="badge badge-next">Als Nächstes</span>{% endif %}
           {% if img.kind == 'pdf' %}<span class="badge badge-kind">PDF</span>{% endif %}
         </div>
         <div class="tile-body">
@@ -222,6 +232,23 @@
           <div class="muted small">
             {% if img.printed_iso %}Zuletzt gedruckt {{ img.last_printed }}{% else %}Noch nie gedruckt{% endif %}
             · {{ img.size_kb }} KB
+          </div>
+          <div class="tile-move">
+            <form method="post" action="{{ url_for('move_image', name=img.name) }}">
+              <input type="hidden" name="dir" value="up">
+              <button class="btn btn-mini btn-ghost btn-icon" type="submit" title="Nach vorne" aria-label="Nach vorne" {{ 'disabled' if loop.first }}>
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+              </button>
+            </form>
+            <span class="drag-handle" title="Ziehen zum Sortieren" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>
+            </span>
+            <form method="post" action="{{ url_for('move_image', name=img.name) }}">
+              <input type="hidden" name="dir" value="down">
+              <button class="btn btn-mini btn-ghost btn-icon" type="submit" title="Nach hinten" aria-label="Nach hinten" {{ 'disabled' if loop.last }}>
+                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+              </button>
+            </form>
           </div>
           <div class="tile-actions">
             <form method="post" action="{{ url_for('print_image', name=img.name) }}" data-confirm="„{{ img.name }}“ jetzt drucken?">
