@@ -66,6 +66,67 @@
     });
   }
 
+  // ---- Mehrfachauswahl im Bilderpool ----------------------------------------
+  var bulk = document.getElementById("bulk-form");
+  if (bulk) {
+    var boxes     = Array.prototype.slice.call(document.querySelectorAll('input[name="names"][form="bulk-form"]'));
+    var allField  = document.getElementById("bulk-all");
+    var pageBox   = document.getElementById("select-page");
+    var allBtn    = document.getElementById("select-all");
+    var noneBtn   = document.getElementById("select-none");
+    var countEl   = document.getElementById("bulk-count");
+    var total     = parseInt(bulk.dataset.total, 10) || boxes.length;
+    var needSel   = bulk.querySelectorAll("[data-needs-selection]");
+    var lastBtn   = null;
+
+    var refresh = function () {
+      var n = boxes.filter(function (b) { return b.checked; }).length;
+      var all = allField.value === "1";
+      boxes.forEach(function (b) {
+        var tile = b.closest(".tile");
+        if (tile) { tile.classList.toggle("selected", b.checked); }
+      });
+      var count = all ? total : n;
+      countEl.textContent = all ? "Alle " + total + " Bilder ausgewählt"
+        : (n ? n + " ausgewählt" : "Nichts ausgewählt");
+      countEl.classList.toggle("has-sel", count > 0);
+      pageBox.checked = boxes.length > 0 && n === boxes.length;
+      pageBox.indeterminate = n > 0 && n < boxes.length;
+      noneBtn.hidden = count === 0;
+      allBtn.hidden = all || total <= boxes.length;
+      Array.prototype.forEach.call(needSel, function (b) { b.disabled = count === 0; });
+    };
+    boxes.forEach(function (b) {
+      b.addEventListener("change", function () { allField.value = "0"; refresh(); });
+    });
+    pageBox.addEventListener("change", function () {
+      allField.value = "0";
+      boxes.forEach(function (b) { b.checked = pageBox.checked; });
+      refresh();
+    });
+    allBtn.addEventListener("click", function () {
+      allField.value = "1";
+      boxes.forEach(function (b) { b.checked = true; });
+      refresh();
+    });
+    noneBtn.addEventListener("click", function () {
+      allField.value = "0";
+      boxes.forEach(function (b) { b.checked = false; });
+      refresh();
+    });
+    Array.prototype.forEach.call(bulk.querySelectorAll("button[type=submit]"), function (b) {
+      b.addEventListener("click", function () { lastBtn = b; });
+    });
+    bulk.addEventListener("submit", function (ev) {
+      if (!lastBtn || lastBtn.value !== "delete") { return; }
+      var all = allField.value === "1";
+      var n = all ? total : boxes.filter(function (b) { return b.checked; }).length;
+      var msg = all ? "Wirklich ALLE " + total + " Bilder aus dem Pool löschen?" : n + " Bild(er) wirklich löschen?";
+      if (!window.confirm(msg)) { ev.preventDefault(); }
+    });
+    refresh();
+  }
+
   // ---- Bilderpool sortieren (Drag & Drop der Kacheln) ----------------------
   var pool = document.getElementById("pool");
   if (pool) {

@@ -92,6 +92,7 @@ def _env_choice(name: str, choices, default):
 # a key that is missing from the file falls back to these defaults.
 IMAGE_ORDERS = ("sequence", "roundrobin", "random")
 ORDER_LABELS = {"sequence": "Feste Reihenfolge", "roundrobin": "Round-Robin", "random": "Zufällig"}
+PAGE_SIZE = 20          # pool tiles per dashboard page
 MAX_SPLIT_PAGES = 200   # multi-page PDFs are split into single pages up to this size
 
 SETTINGS_DEFAULTS = {
@@ -535,6 +536,61 @@ def move_pool_image(name: str, direction: str) -> bool:
         order.insert(max(0, min(j, len(order))), name)
         set_pool_order(order)
         return True
+
+
+def reorder_subset(names: list) -> list:
+    """Reorder only the given images among the positions they already occupy
+    (used for drag & drop on one dashboard page)."""
+    with _state_lock:
+        current = [p.name for p in _pool_files()]
+        known = set(current)
+        given = [n for n in dict.fromkeys(names) if n in known]
+        slots = sorted(current.index(n) for n in given)
+        for i, n in zip(slots, given):
+            current[i] = n
+        return set_pool_order(current)
+
+
+def move_selection(names: list, where: str) -> list:
+    """Move the selected images (keeping their relative order) to the start or end."""
+    with _state_lock:
+        current = [p.name for p in _pool_files()]
+        chosen = set(names)
+        picked = [n for n in current if n in chosen]
+        rest = [n for n in current if n not in chosen]
+        return set_pool_order(picked + rest if where == "first" else rest + picked)
+
+
+def sort_pool(by: str) -> list:
+    """Sort the whole pool: name, newest / oldest added (file mtime) or random."""
+    files = _pool_files()
+    if by == "name":
+        files.sort(key=lambda p: p.name.lower())
+    elif by == "newest":
+        files.sort(key=lambda p: (-p.stat().st_mtime, p.name.lower()))
+    elif by == "oldest":
+        files.sort(key=lambda p: (p.stat().st_mtime, p.name.lower()))
+    elif by == "random":
+        random.shuffle(files)
+    else:
+        raise ValueError(by)
+    return set_pool_order([p.name for p in files])
+
+
+def clear_pool() -> int:
+    """Delete every pool image, its thumbnail and the per-image state."""
+    with _state_lock:
+        files = _pool_files()
+        for p in files:
+            p.unlink(missing_ok=True)
+            _thumb_path(p.name).unlink(missing_ok=True)
+        state = load_state()
+        state["order"] = []
+        state["sequence_last"] = None
+        state["image_history"] = {}
+        save_state(state)
+    log.info(f"Pool cleared ({len(files)} files)")
+    return len(files)
 
 
 def _order_replace(old: str, new_names: list) -> None:
@@ -1079,10 +1135,24 @@ def _list_images(next_image: Optional[Path]) -> list:
             "size_kb":       max(st.st_size // 1024, 1),
             "mtime":         int(st.st_mtime),
             "last_printed":  _fmt_dt(image_history.get(p.name)),
+            "added":         datetime.fromtimestamp(st.st_mtime).strftime("%d.%m.%Y %H:%M"),
             "printed_iso":   image_history.get(p.name),
             "is_next":       next_image is not None and p.name == next_image.name,
         })
     return out
+
+
+def _page_arg() -> int:
+    try:
+        return max(1, int(request.values.get("page", 1)))
+    except (TypeError, ValueError):
+        return 1
+
+
+def _back_to_pool(page: Optional[int] = None):
+    page = page or _page_arg()
+    target = url_for("index", page=page) if page > 1 else url_for("index")
+    return redirect(target + "#pool-card")
 
 
 def _render():
@@ -1090,6 +1160,9 @@ def _render():
     settings = load_settings()
     caps     = _printer_capabilities()
     next_img = pick_next_image(settings)
+    all_imgs = _list_images(next_img)
+    pages    = max(1, -(-len(all_imgs) // PAGE_SIZE))
+    page     = min(_page_arg(), pages)
     return render_template(
         "dashboard.html",
         version        = VERSION,
@@ -1102,7 +1175,10 @@ def _render():
         last_print     = _fmt_dt(state.get("last_print")),
         print_count    = state.get("print_count", 0),
         history        = state.get("history", []),
-        images         = _list_images(next_img),
+        images         = all_imgs[(page - 1) * PAGE_SIZE: page * PAGE_SIZE],
+        total_images   = len(all_imgs),
+        page           = page,
+        pages          = pages,
         next_image     = next_img.name if next_img else None,
         settings       = settings,
         media_options  = media_type_options(settings, caps),
@@ -1222,7 +1298,7 @@ def print_image(name):
         return redirect(url_for("index"))
     threading.Thread(target=do_print, kwargs={"manual": True, "image": src}, daemon=True).start()
     flash(f"Druckauftrag gestartet: {safe}", "ok")
-    return redirect(url_for("index"))
+    return _back_to_pool()
 
 
 def _switch_to_sequence() -> bool:
@@ -1242,10 +1318,57 @@ def move_image(name):
     direction = request.form.get("dir", "")
     if direction not in ("up", "down", "first", "last") or not move_pool_image(safe, direction):
         flash(f"Verschieben nicht möglich: {safe}", "err")
-        return redirect(url_for("index") + "#pool")
+        return _back_to_pool()
     if _switch_to_sequence():
         flash("Bildauswahl auf „Feste Reihenfolge“ umgestellt.", "ok")
-    return redirect(url_for("index") + "#pool")
+    return _back_to_pool()
+
+
+@app.route("/images/sort", methods=["POST"])
+def sort_images():
+    by = request.form.get("by", "")
+    labels = {"name": "nach Name", "newest": "neueste zuerst", "oldest": "älteste zuerst", "random": "zufällig gemischt"}
+    if by not in labels:
+        flash("Unbekannte Sortierung.", "err")
+        return _back_to_pool(1)
+    sort_pool(by)
+    _switch_to_sequence()
+    flash(f"Reihenfolge {labels[by]}. Gedruckt wird ab jetzt in dieser Reihenfolge.", "ok")
+    return _back_to_pool(1)
+
+
+@app.route("/images/bulk", methods=["POST"])
+def bulk_images():
+    action = request.form.get("action", "")
+    if request.form.get("all") == "1":
+        names = [p.name for p in _pool_files()]
+        everything = True
+    else:
+        names = [secure_filename(n) for n in request.form.getlist("names")]
+        names = [n for n in names if (IMAGE_DIR / n).exists()]
+        everything = False
+    if not names:
+        flash("Keine Bilder ausgewählt.", "err")
+        return _back_to_pool()
+    if action == "delete":
+        if everything:
+            count = clear_pool()
+            flash(f"Bilderpool geleert ({count} Bilder gelöscht).", "ok")
+            return _back_to_pool(1)
+        for n in names:
+            try:
+                delete_pool_image(n)
+            except Exception as exc:
+                flash(f"Löschen fehlgeschlagen: {n}: {exc}", "err")
+        flash(f"{len(names)} Bild(er) gelöscht.", "ok")
+        return _back_to_pool()
+    if action in ("first", "last"):
+        move_selection(names, action)
+        _switch_to_sequence()
+        flash(f"{len(names)} Bild(er) {'an den Anfang' if action == 'first' else 'ans Ende'} verschoben.", "ok")
+        return _back_to_pool(1 if action == "first" else 10 ** 6)
+    flash("Unbekannte Aktion.", "err")
+    return _back_to_pool()
 
 
 @app.route("/images/order", methods=["POST"])
@@ -1254,7 +1377,7 @@ def reorder_images():
     names = data.get("order")
     if not isinstance(names, list) or not all(isinstance(n, str) for n in names):
         return jsonify({"ok": False, "error": "order must be a list of names"}), 400
-    order = set_pool_order([secure_filename(n) for n in names])
+    order = reorder_subset([secure_filename(n) for n in names])
     switched = _switch_to_sequence()
     if switched:
         flash("Bildauswahl auf „Feste Reihenfolge“ umgestellt.", "ok")
@@ -1272,7 +1395,7 @@ def delete_image(name):
         flash(f"Gelöscht: {safe}", "ok")
     except Exception as exc:
         flash(f"Löschen fehlgeschlagen: {exc}", "err")
-    return redirect(url_for("index"))
+    return _back_to_pool()
 
 
 @app.route("/status")

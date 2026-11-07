@@ -79,7 +79,7 @@
     </div>
     <div class="kpi">
       <span class="kpi-label">Bilder im Pool</span>
-      <span class="kpi-value">{{ images|length }}</span>
+      <span class="kpi-value">{{ total_images }}</span>
       <span class="kpi-hint">{{ order_labels.get(settings.image_order, settings.image_order) }}</span>
     </div>
   </section>
@@ -191,7 +191,7 @@
 
   <!-- ───────────── Bilderpool ───────────── -->
   <section class="card" id="pool-card">
-    <h2>Bilderpool <span class="count">{{ images|length }}</span></h2>
+    <h2>Bilderpool <span class="count">{{ total_images }}</span></h2>
 
     <form method="post" action="{{ url_for('upload') }}" enctype="multipart/form-data" id="upload-form">
       <label class="dropzone" id="dropzone" for="file-input">
@@ -218,17 +218,42 @@
       {% endif %}
       Zum Sortieren Kacheln ziehen oder die Pfeile nutzen. Mehrseitige PDFs werden automatisch in Einzelseiten aufgeteilt.
     </p>
+
+    <form method="post" action="{{ url_for('sort_images') }}" class="toolbar"
+          data-confirm="Die aktuelle Reihenfolge wird ersetzt. Fortfahren?">
+      <span class="toolbar-label">Sortieren</span>
+      <button class="btn btn-mini btn-ghost" type="submit" name="by" value="name">Name A–Z</button>
+      <button class="btn btn-mini btn-ghost" type="submit" name="by" value="newest">Neueste zuerst</button>
+      <button class="btn btn-mini btn-ghost" type="submit" name="by" value="oldest">Älteste zuerst</button>
+      <button class="btn btn-mini btn-ghost" type="submit" name="by" value="random">Zufällig mischen</button>
+    </form>
+
+    <form method="post" action="{{ url_for('bulk_images') }}" class="toolbar" id="bulk-form" data-total="{{ total_images }}">
+      <input type="hidden" name="page" value="{{ page }}">
+      <input type="hidden" name="all" value="0" id="bulk-all">
+      <span class="toolbar-label">Auswahl</span>
+      <label class="check"><input type="checkbox" id="select-page"> Alle auf dieser Seite</label>
+      <button class="btn btn-mini btn-ghost" type="button" id="select-all">Alle {{ total_images }} auswählen</button>
+      <button class="btn btn-mini btn-ghost" type="button" id="select-none" hidden>Auswahl aufheben</button>
+      <span class="bulk-count" id="bulk-count">Nichts ausgewählt</span>
+      <span class="toolbar-spacer"></span>
+      <button class="btn btn-mini btn-ghost" type="submit" name="action" value="first" data-needs-selection disabled>An den Anfang</button>
+      <button class="btn btn-mini btn-ghost" type="submit" name="action" value="last" data-needs-selection disabled>Ans Ende</button>
+      <button class="btn btn-mini btn-danger" type="submit" name="action" value="delete" data-needs-selection disabled>Löschen</button>
+    </form>
+
     <div class="pool" id="pool" data-order-url="{{ url_for('reorder_images') }}">
       {% for img in images %}
       <article class="tile {{ 'tile-next' if img.is_next }}" draggable="true" data-name="{{ img.name }}">
         <div class="tile-img">
           <img src="{{ url_for('image_thumb', name=img.name) }}?v={{ img.mtime }}" alt="{{ img.name }}" loading="lazy" draggable="false">
+          <label class="tile-check" title="Auswählen"><input type="checkbox" name="names" value="{{ img.name }}" form="bulk-form"></label>
           <span class="badge badge-pos" title="Position in der Reihenfolge">{{ img.pos }}</span>
           {% if img.is_next %}<span class="badge badge-next">Als Nächstes</span>{% endif %}
-          {% if img.kind == 'pdf' %}<span class="badge badge-kind">PDF</span>{% endif %}
+          {% if img.kind == 'pdf' %}<span class="badge badge-kind badge-kind-low">PDF</span>{% endif %}
         </div>
         <div class="tile-body">
-          <div class="fname" title="{{ img.name }}">{{ img.name }}</div>
+          <div class="fname" title="{{ img.name }} · hinzugefügt {{ img.added }}">{{ img.name }}</div>
           <div class="muted small">
             {% if img.printed_iso %}Zuletzt gedruckt {{ img.last_printed }}{% else %}Noch nie gedruckt{% endif %}
             · {{ img.size_kb }} KB
@@ -236,7 +261,8 @@
           <div class="tile-move">
             <form method="post" action="{{ url_for('move_image', name=img.name) }}">
               <input type="hidden" name="dir" value="up">
-              <button class="btn btn-mini btn-ghost btn-icon" type="submit" title="Nach vorne" aria-label="Nach vorne" {{ 'disabled' if loop.first }}>
+              <input type="hidden" name="page" value="{{ page }}">
+              <button class="btn btn-mini btn-ghost btn-icon" type="submit" title="Nach vorne" aria-label="Nach vorne" {{ 'disabled' if img.pos == 1 }}>
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
               </button>
             </form>
@@ -245,17 +271,18 @@
             </span>
             <form method="post" action="{{ url_for('move_image', name=img.name) }}">
               <input type="hidden" name="dir" value="down">
-              <button class="btn btn-mini btn-ghost btn-icon" type="submit" title="Nach hinten" aria-label="Nach hinten" {{ 'disabled' if loop.last }}>
+              <input type="hidden" name="page" value="{{ page }}">
+              <button class="btn btn-mini btn-ghost btn-icon" type="submit" title="Nach hinten" aria-label="Nach hinten" {{ 'disabled' if img.pos == total_images }}>
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
               </button>
             </form>
           </div>
           <div class="tile-actions">
-            <form method="post" action="{{ url_for('print_image', name=img.name) }}" data-confirm="„{{ img.name }}“ jetzt drucken?">
+            <form method="post" action="{{ url_for('print_image', name=img.name, page=page) }}" data-confirm="„{{ img.name }}“ jetzt drucken?">
               <button class="btn btn-mini btn-primary" type="submit">Drucken</button>
             </form>
             <button class="btn btn-mini btn-ghost" type="button" data-preview="{{ url_for('preview', image=img.name) }}">Vorschau</button>
-            <form method="post" action="{{ url_for('delete_image', name=img.name) }}" data-confirm="„{{ img.name }}“ wirklich löschen?">
+            <form method="post" action="{{ url_for('delete_image', name=img.name, page=page) }}" data-confirm="„{{ img.name }}“ wirklich löschen?">
               <button class="btn btn-mini btn-danger" type="submit">Löschen</button>
             </form>
           </div>
@@ -263,6 +290,24 @@
       </article>
       {% endfor %}
     </div>
+
+    {% if pages > 1 %}
+    <nav class="pager" aria-label="Seiten">
+      {% set first_pos = (page - 1) * 20 + 1 %}
+      <a class="btn btn-mini btn-ghost {{ 'is-disabled' if page == 1 }}" href="{{ url_for('index', page=page - 1) }}#pool-card" aria-label="Vorherige Seite">‹ Zurück</a>
+      {% for p in range(1, pages + 1) %}
+        {% if p == page %}
+          <span class="pager-cur" aria-current="page">{{ p }}</span>
+        {% elif p == 1 or p == pages or (p - page)|abs <= 2 %}
+          <a class="pager-num" href="{{ url_for('index', page=p) }}#pool-card">{{ p }}</a>
+        {% elif (p - page)|abs == 3 %}
+          <span class="pager-gap">…</span>
+        {% endif %}
+      {% endfor %}
+      <a class="btn btn-mini btn-ghost {{ 'is-disabled' if page == pages }}" href="{{ url_for('index', page=page + 1) }}#pool-card" aria-label="Nächste Seite">Weiter ›</a>
+      <span class="muted small pager-info">Bilder {{ first_pos }}–{{ [first_pos + images|length - 1, total_images]|min }} von {{ total_images }}</span>
+    </nav>
+    {% endif %}
     {% else %}
     <p class="empty">
       Noch keine Bilder. Ohne Bilder druckt AutoPrint die synthetische Farbtestseite.
