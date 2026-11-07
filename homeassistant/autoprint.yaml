@@ -1,0 +1,111 @@
+# AutoPrint – Home Assistant package
+# ==================================
+# Gives you a real BUTTON (not a switch) that prints the next pool image,
+# plus sensors for the next image, the next scheduled run, the last print
+# and the printer's reachability.
+#
+# Setup
+#   1. configuration.yaml:
+#        homeassistant:
+#          packages: !include_dir_named packages
+#   2. Copy this file to <config>/packages/autoprint.yaml
+#   3. Replace every  http://AUTOPRINT-HOST:8080  with your Docker host, e.g. http://192.168.1.20:8080
+#   4. Only if you set API_TOKEN in the AutoPrint container: put
+#        autoprint_auth: "Bearer <your token>"
+#      into secrets.yaml and remove the "#" in front of the two "headers:" blocks below.
+#   5. Developer tools -> YAML -> check configuration -> restart Home Assistant.
+#
+# Entities (unique_id stays fixed, so you can rename / re-icon them in the UI):
+#   button.autoprint_drucken                   press = print the next image now
+#   sensor.autoprint_nachstes_bild             file that will be printed next
+#   sensor.autoprint_nachster_druck            next weekly run (timestamp)
+#   sensor.autoprint_letzter_druck             last successful print (timestamp)
+#   binary_sensor.autoprint_druckproblem       ON when the last print attempt failed
+#   binary_sensor.autoprint_drucker_erreichbar printer answers on IPP
+# The entity_ids are what Home Assistant derives from the names on first start
+# (umlauts become plain letters). If yours differ, adjust them in the button below.
+
+rest_command:
+  autoprint_print_next:
+    url: "http://AUTOPRINT-HOST:8080/api/print"
+    method: POST
+    timeout: 70          # the printer may need ~45 s to wake up
+    # headers:
+    #   Authorization: !secret autoprint_auth
+
+rest:
+  - resource: "http://AUTOPRINT-HOST:8080/api/next"
+    scan_interval: 900   # every 15 min; the button refreshes right after printing
+    timeout: 30
+    # headers:
+    #   Authorization: !secret autoprint_auth
+    sensor:
+      - name: "AutoPrint nächstes Bild"
+        unique_id: autoprint_next_image
+        icon: mdi:image-outline
+        value_template: "{{ value_json.next_image or 'Farbtestseite' }}"
+        json_attributes:
+          - pool_size
+          - image_order
+          - print_count
+          - version
+      - name: "AutoPrint nächster Druck"
+        unique_id: autoprint_next_run
+        icon: mdi:calendar-clock
+        device_class: timestamp
+        value_template: "{{ value_json.next_run.iso | as_datetime if value_json.next_run.iso else none }}"
+      - name: "AutoPrint letzter Druck"
+        unique_id: autoprint_last_print
+        icon: mdi:printer-check
+        device_class: timestamp
+        value_template: "{{ value_json.last_print | as_datetime if value_json.last_print else none }}"
+    binary_sensor:
+      - name: "AutoPrint Druckproblem"
+        unique_id: autoprint_last_attempt_problem
+        icon: mdi:printer-alert
+        device_class: problem
+        # problem = ON when the last attempt failed
+        value_template: "{{ value_json.last_attempt is not none and value_json.last_attempt.ok == false }}"
+        json_attributes:
+          - last_attempt
+      - name: "AutoPrint Drucker erreichbar"
+        unique_id: autoprint_printer_reachable
+        device_class: connectivity
+        value_template: "{{ value_json.printer_reachable }}"
+
+template:
+  - button:
+      - name: "AutoPrint drucken"
+        unique_id: autoprint_print_next_button
+        icon: mdi:printer
+        press:
+          - action: rest_command.autoprint_print_next
+            response_variable: result
+            continue_on_error: true   # AutoPrint offline -> still show a notification
+          - variables:
+              status: "{{ result.status if result is defined and result.status is defined else 0 }}"
+              body: "{{ result.content if result is defined and result.content is mapping else {} }}"
+          - if:
+              - condition: template
+                value_template: "{{ status == 200 and body.ok | default(false) }}"
+            then:
+              - action: persistent_notification.create
+                data:
+                  notification_id: autoprint
+                  title: "AutoPrint"
+                  message: >-
+                    Gedruckt: {{ body.image or 'Farbtestseite' }}.
+                    Als Nächstes: {{ body.next_image or 'Farbtestseite' }}.
+            else:
+              - action: persistent_notification.create
+                data:
+                  notification_id: autoprint
+                  title: "AutoPrint – Druck fehlgeschlagen"
+                  message: >-
+                    {% if status == 0 %}AutoPrint ist nicht erreichbar (Container aus oder falsche Adresse).
+                    {% elif status == 409 %}Es läuft gerade schon ein Druckauftrag.
+                    {% elif status == 401 %}API-Token fehlt oder ist falsch (secrets.yaml).
+                    {% else %}{{ body.message or body.error or ('HTTP ' ~ status) }}{% endif %}
+          - action: homeassistant.update_entity
+            target:
+              entity_id: sensor.autoprint_nachstes_bild

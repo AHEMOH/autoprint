@@ -111,6 +111,14 @@ curl -X POST -H "Authorization: Bearer $API_TOKEN" http://<host>:8080/api/print
 Node-RED: an **http request** node with method `POST`, URL
 `http://<host>:8080/api/print`, return "a parsed JSON object", timeout 60 s.
 
+### Home Assistant
+
+[`homeassistant/autoprint.yaml`](homeassistant/autoprint.yaml) is a ready-made package: a
+**button** "AutoPrint drucken" (prints the next image and shows a notification with the
+result), sensors for the next image, next scheduled run and last print, and binary sensors
+for "last print failed" and printer reachability. Copy it to `<config>/packages/`, replace
+`AUTOPRINT-HOST` and restart Home Assistant; the header of the file explains the details.
+
 ## docker run (alternative)
 
 ```bash

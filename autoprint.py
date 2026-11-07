@@ -1110,7 +1110,7 @@ def describe_next_run() -> dict:
     else:
         rel = f"in {days} Tagen"
     weekday = WEEKDAY_DE.get(nr.strftime("%A").lower(), nr.strftime("%A"))
-    return {"iso": nr.isoformat(timespec="minutes"), "label": f"{weekday}, {nr:%d.%m.%Y %H:%M}", "relative": rel}
+    return {"iso": nr.astimezone().isoformat(timespec="minutes"), "label": f"{weekday}, {nr:%d.%m.%Y %H:%M}", "relative": rel}
 
 
 # ---------------------------------------------------------------------------
@@ -1406,6 +1406,16 @@ def delete_image(name):
 _api_print_lock = threading.Lock()
 
 
+def _aware_iso(iso: Optional[str]) -> Optional[str]:
+    """Naive local ISO timestamp from state.json -> ISO with UTC offset."""
+    if not iso:
+        return None
+    try:
+        return datetime.fromisoformat(iso).astimezone().isoformat(timespec="seconds")
+    except ValueError:
+        return None
+
+
 def _api_authorized() -> bool:
     """With API_TOKEN set, require it as Bearer token, X-API-Key header or ?token=."""
     if not API_TOKEN:
@@ -1427,9 +1437,19 @@ def api_next():
     """Which image the next print will use, plus schedule and printer state."""
     settings = load_settings()
     nxt = pick_next_image(settings)
+    state = load_state()
+    last = (state.get("history") or [{}])[0]
     return jsonify({
         "ok":                True,
         "next_image":        nxt.name if nxt else None,
+        "last_print":        _aware_iso(state.get("last_print")),
+        "last_attempt":      {
+            "time":    _aware_iso(last.get("iso")),
+            "ok":      last.get("success"),
+            "image":   last.get("image"),
+            "message": last.get("msg"),
+        } if last else None,
+        "print_count":       state.get("print_count", 0),
         "pool_size":         len(_pool_files()),
         "image_order":       settings["image_order"],
         "next_run":          describe_next_run(),
@@ -1468,7 +1488,7 @@ def api_print():
         "image":      entry.get("image"),
         "message":    entry.get("msg"),
         "options":    entry.get("opts", {}),
-        "time":       entry.get("iso"),
+        "time":       _aware_iso(entry.get("iso")),
         "next_image": nxt.name if nxt else None,
     }), (200 if success else 502)
 
