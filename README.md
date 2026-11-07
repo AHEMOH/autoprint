@@ -111,13 +111,15 @@ curl -X POST -H "Authorization: Bearer $API_TOKEN" http://<host>:8080/api/print
 Node-RED: an **http request** node with method `POST`, URL
 `http://<host>:8080/api/print`, return "a parsed JSON object", timeout 60 s.
 
-### Home Assistant
+### Node-RED + Home Assistant
 
-[`homeassistant/autoprint.yaml`](homeassistant/autoprint.yaml) is a ready-made package: a
-**button** "AutoPrint drucken" (prints the next image and shows a notification with the
-result), sensors for the next image, next scheduled run and last print, and binary sensors
-for "last print failed" and printer reachability. Copy it to `<config>/packages/`, replace
-`AUTOPRINT-HOST` and restart Home Assistant; the header of the file explains the details.
+[`nodered/autoprint-flow.json`](nodered/autoprint-flow.json) is a ready-made Node-RED flow
+for `node-red-contrib-home-assistant-websocket` (needs the *Node-RED Companion*
+integration in Home Assistant). It creates a Home Assistant **button** "AutoPrint
+drucken" that prints the next image and posts a notification with the result, plus a
+sensor "AutoPrint nächstes Bild" refreshed every 15 minutes. Import it (Menu → Import),
+set the AutoPrint address in the "AutoPrint Request" node, select your Home Assistant
+server in the Home Assistant nodes and deploy.
 
 ## docker run (alternative)
 
