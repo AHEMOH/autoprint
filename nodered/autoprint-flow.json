@@ -4,7 +4,7 @@
     "type": "comment",
     "z": "",
     "name": "AutoPrint: set the AutoPrint address (and optional API token) in \"AutoPrint Request\"",
-    "info": "Needs node-red-contrib-home-assistant-websocket and the Node-RED Companion integration in Home Assistant.\n\n- **AutoPrint drucken** creates the Home Assistant button entity. Pressing it prints the next image.\n- **alle 15 min** refreshes the sensor \"AutoPrint nächstes Bild\".\n- After each print a Home Assistant notification shows the result.\n\nAfter the import open both entity config nodes and both Home Assistant nodes once and select your Home Assistant server.",
+    "info": "Needs node-red-contrib-home-assistant-websocket and the Node-RED Companion integration in Home Assistant.\n\nAll entities belong to the Home Assistant device **AutoPrint**:\n- **AutoPrint drucken** (button): prints the next image. HomeKit Bridge shows it as a switch that turns itself off again, so Siri can trigger it.\n- **AutoPrint nächstes Bild** (sensor), refreshed every 15 min and after each print.\n- **AutoPrint Drucker erreichbar** (binary sensor, diagnostic).\n\nAfter the import select your Home Assistant server in the three entity config nodes and in \"Benachrichtigung\", then deploy.",
     "x": 330,
     "y": 40,
     "wires": []
@@ -19,18 +19,32 @@
     "outputs": 1,
     "entityConfig": "ap_cfg_btn",
     "outputProperties": [
-      { "property": "topic", "propertyType": "msg", "value": "print", "valueType": "str" }
+      {
+        "property": "topic",
+        "propertyType": "msg",
+        "value": "print",
+        "valueType": "str"
+      }
     ],
     "x": 150,
     "y": 100,
-    "wires": [["ap_req"]]
+    "wires": [
+      [
+        "ap_req"
+      ]
+    ]
   },
   {
     "id": "ap_inject",
     "type": "inject",
     "z": "",
     "name": "alle 15 min",
-    "props": [{ "p": "topic", "vt": "str" }],
+    "props": [
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
     "repeat": "900",
     "crontab": "",
     "once": true,
@@ -38,7 +52,11 @@
     "topic": "next",
     "x": 150,
     "y": 160,
-    "wires": [["ap_req"]]
+    "wires": [
+      [
+        "ap_req"
+      ]
+    ]
   },
   {
     "id": "ap_req",
@@ -54,7 +72,11 @@
     "libs": [],
     "x": 370,
     "y": 130,
-    "wires": [["ap_http"]]
+    "wires": [
+      [
+        "ap_http"
+      ]
+    ]
   },
   {
     "id": "ap_http",
@@ -74,15 +96,19 @@
     "headers": [],
     "x": 570,
     "y": 130,
-    "wires": [["ap_result"]]
+    "wires": [
+      [
+        "ap_result"
+      ]
+    ]
   },
   {
     "id": "ap_result",
     "type": "function",
     "z": "",
     "name": "Ergebnis auswerten",
-    "func": "// Output 1: notification (only after a print)\n// Output 2: sensor \"AutoPrint nächstes Bild\"\nconst code = msg.statusCode;\nconst body = (msg.payload && typeof msg.payload === \"object\") ? msg.payload : {};\nconst next = body.next_image || \"Farbtestseite\";\n\nlet notify = null;\nif (msg.topic === \"print\") {\n    let title, text;\n    if (code === 200 && body.ok) {\n        title = \"AutoPrint\";\n        text  = `Gedruckt: ${body.image || \"Farbtestseite\"}. Als Nächstes: ${next}.`;\n        node.status({ fill: \"green\", shape: \"dot\", text: body.image || \"Farbtestseite\" });\n    } else {\n        title = \"AutoPrint – Druck fehlgeschlagen\";\n        if (!code)             text = \"AutoPrint ist nicht erreichbar (Container aus oder falsche Adresse).\";\n        else if (code === 409) text = \"Es läuft gerade schon ein Druckauftrag.\";\n        else if (code === 401) text = \"API-Token fehlt oder ist falsch.\";\n        else                   text = body.message || body.error || (\"HTTP \" + code);\n        node.status({ fill: \"red\", shape: \"ring\", text: text.slice(0, 40) });\n    }\n    notify = { payload: { title, message: text } };\n}\n\nlet sensor = null;\nif (code === 200 && (body.next_image !== undefined)) {\n    sensor = {\n        payload: next,\n        attrs: {\n            pool_size:         body.pool_size,\n            image_order:       body.image_order,\n            print_count:       body.print_count,\n            last_print:        body.last_print || body.time || null,\n            printer_reachable: body.printer_reachable,\n            next_run:          body.next_run ? body.next_run.iso : undefined\n        }\n    };\n}\nreturn [notify, sensor];",
-    "outputs": 2,
+    "func": "// Output 1: notification (only after a print)\n// Output 2: sensor \"AutoPrint nächstes Bild\"\n// Output 3: binary sensor \"AutoPrint Drucker erreichbar\"\nconst code = msg.statusCode;\nconst body = (msg.payload && typeof msg.payload === \"object\") ? msg.payload : {};\nconst next = body.next_image || \"Farbtestseite\";\n\nlet notify = null;\nif (msg.topic === \"print\") {\n    let title, text;\n    if (code === 200 && body.ok) {\n        title = \"AutoPrint\";\n        text  = `Gedruckt: ${body.image || \"Farbtestseite\"}. Als Nächstes: ${next}.`;\n        node.status({ fill: \"green\", shape: \"dot\", text: body.image || \"Farbtestseite\" });\n    } else {\n        title = \"AutoPrint – Druck fehlgeschlagen\";\n        if (!code)             text = \"AutoPrint ist nicht erreichbar (Container aus oder falsche Adresse).\";\n        else if (code === 409) text = \"Es läuft gerade schon ein Druckauftrag.\";\n        else if (code === 401) text = \"API-Token fehlt oder ist falsch.\";\n        else                   text = body.message || body.error || (\"HTTP \" + code);\n        node.status({ fill: \"red\", shape: \"ring\", text: text.slice(0, 40) });\n    }\n    notify = { payload: { title, message: text } };\n}\n\nlet sensor = null;\nif (code === 200 && body.next_image !== undefined) {\n    sensor = {\n        payload: next,\n        attrs: {\n            pool_size:   body.pool_size,\n            image_order: body.image_order,\n            print_count: body.print_count,\n            last_print:  body.last_print || body.time || null,\n            next_run:    body.next_run ? body.next_run.iso : undefined\n        }\n    };\n}\n\nlet reachable = null;\nif (msg.topic === \"next\") {\n    // container down counts as \"not reachable\" as well\n    reachable = { payload: code === 200 && body.printer_reachable === true };\n} else if (code === 200 && body.ok) {\n    reachable = { payload: true };\n}\nreturn [notify, sensor, reachable];",
+    "outputs": 3,
     "timeout": 0,
     "noerr": 0,
     "initialize": "",
@@ -90,7 +116,17 @@
     "libs": [],
     "x": 780,
     "y": 130,
-    "wires": [["ap_notify"], ["ap_sensor"]]
+    "wires": [
+      [
+        "ap_notify"
+      ],
+      [
+        "ap_sensor"
+      ],
+      [
+        "ap_reach"
+      ]
+    ]
   },
   {
     "id": "ap_notify",
@@ -117,7 +153,9 @@
     "service": "create",
     "x": 1010,
     "y": 100,
-    "wires": [[]]
+    "wires": [
+      []
+    ]
   },
   {
     "id": "ap_sensor",
@@ -129,32 +167,65 @@
     "state": "payload",
     "stateType": "msg",
     "attributes": [
-      { "property": "pool_size",         "value": "attrs.pool_size",         "valueType": "msg" },
-      { "property": "image_order",       "value": "attrs.image_order",       "valueType": "msg" },
-      { "property": "print_count",       "value": "attrs.print_count",       "valueType": "msg" },
-      { "property": "last_print",        "value": "attrs.last_print",        "valueType": "msg" },
-      { "property": "printer_reachable", "value": "attrs.printer_reachable", "valueType": "msg" },
-      { "property": "next_run",          "value": "attrs.next_run",          "valueType": "msg" }
+      {
+        "property": "pool_size",
+        "value": "attrs.pool_size",
+        "valueType": "msg"
+      },
+      {
+        "property": "image_order",
+        "value": "attrs.image_order",
+        "valueType": "msg"
+      },
+      {
+        "property": "print_count",
+        "value": "attrs.print_count",
+        "valueType": "msg"
+      },
+      {
+        "property": "last_print",
+        "value": "attrs.last_print",
+        "valueType": "msg"
+      },
+      {
+        "property": "next_run",
+        "value": "attrs.next_run",
+        "valueType": "msg"
+      }
     ],
     "inputOverride": "allow",
     "outputProperties": [],
     "x": 1030,
     "y": 160,
-    "wires": [[]]
+    "wires": [
+      []
+    ]
   },
   {
     "id": "ap_cfg_btn",
     "type": "ha-entity-config",
     "server": "",
-    "deviceConfig": "",
+    "deviceConfig": "ap_device",
     "name": "AutoPrint drucken",
     "version": 6,
     "entityType": "button",
     "haConfig": [
-      { "property": "name",            "value": "AutoPrint drucken" },
-      { "property": "icon",            "value": "mdi:printer" },
-      { "property": "entity_category", "value": "" },
-      { "property": "device_class",    "value": "" }
+      {
+        "property": "name",
+        "value": "AutoPrint drucken"
+      },
+      {
+        "property": "icon",
+        "value": "mdi:printer"
+      },
+      {
+        "property": "entity_category",
+        "value": ""
+      },
+      {
+        "property": "device_class",
+        "value": ""
+      }
     ],
     "resend": false,
     "debugEnabled": false
@@ -163,19 +234,93 @@
     "id": "ap_cfg_next",
     "type": "ha-entity-config",
     "server": "",
-    "deviceConfig": "",
+    "deviceConfig": "ap_device",
     "name": "AutoPrint nächstes Bild",
     "version": 6,
     "entityType": "sensor",
     "haConfig": [
-      { "property": "name",                "value": "AutoPrint nächstes Bild" },
-      { "property": "icon",                "value": "mdi:image-outline" },
-      { "property": "entity_category",     "value": "" },
-      { "property": "device_class",        "value": "" },
-      { "property": "unit_of_measurement", "value": "" },
-      { "property": "state_class",         "value": "" }
+      {
+        "property": "name",
+        "value": "AutoPrint nächstes Bild"
+      },
+      {
+        "property": "icon",
+        "value": "mdi:image-outline"
+      },
+      {
+        "property": "entity_category",
+        "value": ""
+      },
+      {
+        "property": "device_class",
+        "value": ""
+      },
+      {
+        "property": "unit_of_measurement",
+        "value": ""
+      },
+      {
+        "property": "state_class",
+        "value": ""
+      }
     ],
     "resend": true,
     "debugEnabled": false
+  },
+  {
+    "id": "ap_reach",
+    "type": "ha-binary-sensor",
+    "z": "",
+    "name": "AutoPrint Drucker erreichbar",
+    "entityConfig": "ap_cfg_reach",
+    "version": 0,
+    "state": "payload",
+    "stateType": "msg",
+    "attributes": [],
+    "inputOverride": "allow",
+    "outputProperties": [],
+    "x": 1040,
+    "y": 220,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "ap_cfg_reach",
+    "type": "ha-entity-config",
+    "server": "",
+    "deviceConfig": "ap_device",
+    "name": "AutoPrint Drucker erreichbar",
+    "version": 6,
+    "entityType": "binary_sensor",
+    "haConfig": [
+      {
+        "property": "name",
+        "value": "AutoPrint Drucker erreichbar"
+      },
+      {
+        "property": "icon",
+        "value": "mdi:printer-check"
+      },
+      {
+        "property": "entity_category",
+        "value": "diagnostic"
+      },
+      {
+        "property": "device_class",
+        "value": "connectivity"
+      }
+    ],
+    "resend": true,
+    "debugEnabled": false
+  },
+  {
+    "id": "ap_device",
+    "type": "ha-device-config",
+    "name": "AutoPrint",
+    "hwVersion": "Canon GX2050",
+    "manufacturer": "AutoPrint",
+    "model": "Düsenpflege-Drucker",
+    "swVersion": "2.2"
   }
 ]

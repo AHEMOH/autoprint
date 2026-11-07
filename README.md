@@ -115,9 +115,11 @@ Node-RED: an **http request** node with method `POST`, URL
 
 [`nodered/autoprint-flow.json`](nodered/autoprint-flow.json) is a ready-made Node-RED flow
 for `node-red-contrib-home-assistant-websocket` (needs the *Node-RED Companion*
-integration in Home Assistant). It creates a Home Assistant **button** "AutoPrint
-drucken" that prints the next image and posts a notification with the result, plus a
-sensor "AutoPrint nächstes Bild" refreshed every 15 minutes. Import it (Menu → Import),
+integration in Home Assistant). It creates a Home Assistant **device "AutoPrint"** with a
+**button** "AutoPrint drucken" (prints the next image and posts a notification with the
+result), a sensor "AutoPrint nächstes Bild" and a diagnostic "Drucker erreichbar" binary
+sensor. Exposed through the HomeKit Bridge, the button shows up as a switch that turns
+itself off again, so Siri can trigger a print. Import it (Menu → Import),
 set the AutoPrint address in the "AutoPrint Request" node, select your Home Assistant
 server in the Home Assistant nodes and deploy.
 
