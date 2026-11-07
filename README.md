@@ -78,6 +78,7 @@ docker compose up -d
 | `STRIP_POSITION` | no | `top` | Initial strip position `top` / `bottom` |
 | `IMAGE_ORDER` | no | `sequence` | Initial selection `sequence` (fixed order set in the dashboard) / `roundrobin` / `random` |
 | `SECRET_KEY` | no | random | Flask secret for dashboard flash messages |
+| `API_TOKEN` | no | empty | Token for `/api/*`; empty = API open on your LAN |
 | `GUNICORN_WORKERS` | no | `1` | Keep at 1 (the scheduler runs per process) |
 | `GUNICORN_THREADS` | no | `4` | Threads per worker |
 | `GUNICORN_TIMEOUT` | no | `60` | Request timeout (seconds) |
@@ -86,6 +87,29 @@ The print settings (`PRINT_QUALITY`, `PRINT_MEDIA_TYPE`, `MAINTENANCE_STRIP`,
 `STRIP_POSITION`, `IMAGE_ORDER`) are **initial values only**. Once changed in the
 dashboard they are stored in `/data/settings.json`, which takes precedence. Delete
 that file to go back to the environment values.
+
+## JSON API (Node-RED, Home Assistant, curl)
+
+| Method | Path | What it does |
+|---|---|---|
+| `POST` | `/api/print` | Print the next image now and wait for the result (advances the fixed order like the weekly job) |
+| `POST` | `/api/print` with `{"image": "name.pdf"}` | Print that pool file (does not advance the order) |
+| `GET` | `/api/next` | Next image, pool size, next scheduled run, printer reachability |
+
+`/api/print` answers `200` with `{"ok": true, "image": ..., "message": ..., "next_image": ...}`,
+`502` if the print failed, `404` for an unknown image and `409` if another API print is
+still running. A call can take up to ~45 s when the printer is waking up.
+
+If `API_TOKEN` is set, send it as `Authorization: Bearer <token>`, `X-API-Key: <token>`
+or `?token=<token>`.
+
+```bash
+curl -X POST http://<host>:8080/api/print
+curl -X POST -H "Authorization: Bearer $API_TOKEN" http://<host>:8080/api/print
+```
+
+Node-RED: an **http request** node with method `POST`, URL
+`http://<host>:8080/api/print`, return "a parsed JSON object", timeout 60 s.
 
 ## docker run (alternative)
 

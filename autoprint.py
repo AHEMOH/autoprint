@@ -53,7 +53,7 @@ log = logging.getLogger(__name__)
 
 # Bump this on every release - it shows up in the startup log, in /status,
 # and in the dashboard header so you can verify which build is running.
-VERSION = "2.1.0"
+VERSION = "2.2.0"
 
 # ---------------------------------------------------------------------------
 # Configuration from environment variables
@@ -93,6 +93,7 @@ def _env_choice(name: str, choices, default):
 IMAGE_ORDERS = ("sequence", "roundrobin", "random")
 ORDER_LABELS = {"sequence": "Feste Reihenfolge", "roundrobin": "Round-Robin", "random": "Zufällig"}
 PAGE_SIZE = 20          # pool tiles per dashboard page
+API_TOKEN = os.environ.get("API_TOKEN", "").strip()   # optional, protects /api/*
 MAX_SPLIT_PAGES = 200   # multi-page PDFs are split into single pages up to this size
 
 SETTINGS_DEFAULTS = {
@@ -1396,6 +1397,80 @@ def delete_image(name):
     except Exception as exc:
         flash(f"Löschen fehlgeschlagen: {exc}", "err")
     return _back_to_pool()
+
+
+# ---------------------------------------------------------------------------
+# JSON API (e.g. for Node-RED / Home Assistant)
+# ---------------------------------------------------------------------------
+
+_api_print_lock = threading.Lock()
+
+
+def _api_authorized() -> bool:
+    """With API_TOKEN set, require it as Bearer token, X-API-Key header or ?token=."""
+    if not API_TOKEN:
+        return True
+    auth = request.headers.get("Authorization", "")
+    given = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+    given = given or request.headers.get("X-API-Key", "") or request.args.get("token", "")
+    return secrets.compare_digest(given.encode(), API_TOKEN.encode())
+
+
+@app.before_request
+def _api_guard():
+    if request.path.startswith("/api/") and not _api_authorized():
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+
+
+@app.route("/api/next", methods=["GET"])
+def api_next():
+    """Which image the next print will use, plus schedule and printer state."""
+    settings = load_settings()
+    nxt = pick_next_image(settings)
+    return jsonify({
+        "ok":                True,
+        "next_image":        nxt.name if nxt else None,
+        "pool_size":         len(_pool_files()),
+        "image_order":       settings["image_order"],
+        "next_run":          describe_next_run(),
+        "printer_reachable": _check_printer_reachable(),
+        "version":           VERSION,
+    })
+
+
+@app.route("/api/print", methods=["POST"])
+def api_print():
+    """Print now and wait for the result.
+
+    Without a body: the next image according to the selection (advances the
+    fixed order exactly like the weekly job). Optional JSON / form field
+    "image": print that pool file instead (does not advance the order).
+    """
+    data = request.get_json(silent=True) or request.form or {}
+    name = (data.get("image") or request.args.get("image") or "").strip()
+    image = None
+    if name:
+        image = IMAGE_DIR / secure_filename(name)
+        if not image.exists():
+            return jsonify({"ok": False, "error": f"image not found: {name}"}), 404
+
+    if not _api_print_lock.acquire(blocking=False):
+        return jsonify({"ok": False, "error": "a print job is already running"}), 409
+    try:
+        success = do_print(manual=True, image=image)
+    finally:
+        _api_print_lock.release()
+
+    entry = (load_state().get("history") or [{}])[0]
+    nxt = pick_next_image()
+    return jsonify({
+        "ok":         success,
+        "image":      entry.get("image"),
+        "message":    entry.get("msg"),
+        "options":    entry.get("opts", {}),
+        "time":       entry.get("iso"),
+        "next_image": nxt.name if nxt else None,
+    }), (200 if success else 502)
 
 
 @app.route("/status")

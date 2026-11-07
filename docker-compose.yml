@@ -44,6 +44,7 @@ services:
       STRIP_POSITION: ${STRIP_POSITION:-top}
       IMAGE_ORDER: ${IMAGE_ORDER:-sequence}
       # SECRET_KEY: ${SECRET_KEY}
+      # API_TOKEN: ${API_TOKEN}
 
     # ---- DNS for .home.arpa resolution ----
     # Optional: set DNS server from .env if hostname resolution fails in container.
